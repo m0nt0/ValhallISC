@@ -21,15 +21,15 @@
   - Timings on the local container: export about 2–15 ms, load about 5–70 ms.
   - Session reuse works through the `CSPSESSIONID-*` cookie. 40 calls without cookie reuse didn't fail on 2026.1, but we reuse the session anyway.
 
-## ADR-003: "System" item filter (S1/S2)
+## ADR-003: "System" item filter (S1/S2, revised in Phase 4)
 - **Context:** `docnames` also returns about 5 000 library items that are mapped into every namespace: `IRISLIB`, `ENSLIB`, `IRISSYS`, `CSPX.*`, `INFORMATION.SCHEMA.*`, and `@OTHER` items such as `HIPAA_*.X12` and Ens BPL/DTL.
-- **Decision:** when `show_system` is off, show a doc only if all of these hold:
-  - its `db` is the namespace's **default** database (from `GET /v8/{ns}` → `db[].default`), **or** its `db` is not flagged `dbsys` and doesn't start with `@`;
-  - `upd` is true, which hides Ens-generated read-only routines in the user database;
-  - its name doesn't start with `%`.
-  - `@OTHER` docs are shown unless the name starts with `%`, `Ens`, `EnsLib`, `Ens-` or `HIPAA_`. User lookup tables such as `DemoTable.LUT` are `@OTHER` items.
-  - `@FS` items (CSP files) are hidden in v1.
-- In `%SYS`, the default database is `IRISSYS`, so non-`%` items there are still shown.
+- **Decision:** when `show_system` is off, hide a doc if any of these hold:
+  - it is a CSP/`@FS` file (always hidden in v1);
+  - it is generated (`gen`);
+  - its name matches `^(%|Ens[A-Z.-]|Ensemble|HIPAA_)`, the prefixes InterSystems reserves;
+  - it comes from a `dbsys` database that isn't the namespace's default database (`GET /v8/{ns}` → `db[].default/dbsys`), or from an `@` pseudo-database other than `@OTHER`.
+- `@OTHER` docs that pass the name check stay visible; user lookup tables such as `DemoTable.LUT` are `@OTHER` items. In `%SYS`, the default database is `IRISSYS`, so non-`%` items there stay visible.
+- **Correction (Phase 4):** `upd` means *up to date* (source compiled), **not** "updatable". A seed routine that failed to compile had `upd:false`, and becomes `true` once it compiles. The first version of this rule hid `upd:false` items, which would have hidden any user routine with a compile error. `upd` is no longer used. Ens-generated routines in the user database (`EnsJob.mac`, `EnsUtil.mac`, …) are hidden by the name rule instead.
 
 ## ADR-004: FUSE binding (S3)
 - **Decision:** `mfusepy` 3.1.x, which has a fusepy-compatible API. It supports Linux libfuse3/2, macOS (macFUSE and FUSE-T via `find_library`/`FUSE_LIBRARY_PATH`), and Windows WinFsp (found through the registry). Set `use_ns = True` in `Operations`.
