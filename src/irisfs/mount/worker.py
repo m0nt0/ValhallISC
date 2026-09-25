@@ -16,13 +16,14 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import IO, Any
 
 from irisfs.atelier.client import AtelierClient
 from irisfs.atelier.errors import AtelierError, AuthError, ConnectionFailed
 from irisfs.config import mountpoint
 from irisfs.config.profile import Profile, ProfileValidationError
-from irisfs.mount import fuselib, protocol
+from irisfs.mount import fuselib, protocol, registry
 from irisfs.mount.options import mount_options
 from irisfs.mount.unmount import is_mounted, unmount
 from irisfs.vfs.vfs import Options, VirtualFS
@@ -42,6 +43,9 @@ class WorkerConfig:
     profile: Profile
     password: str
     tree_ttl: float = 10.0
+    detach: bool = False  # CLI "connect": keep running when the parent goes away
+    owner: str = "tray"  # recorded in the mount registry
+    registry_dir: str | None = None
 
     @classmethod
     def from_message(cls, message: dict[str, Any]) -> WorkerConfig:
@@ -52,6 +56,9 @@ class WorkerConfig:
             profile=profile,
             password=str(message.get("password", "")),
             tree_ttl=float(message.get("tree_ttl", 10.0)),
+            detach=bool(message.get("detach", False)),
+            owner=str(message.get("owner", "tray")),
+            registry_dir=message.get("registry_dir") or None,
         )
 
 
@@ -123,6 +130,7 @@ class Worker:
             if not is_mounted(self.mount_path):
                 log.warning("mount of %s not visible in the mount table after 15 s", self.mount_path)
             log.info("mounted %s at %s", p.name, self.mount_path)
+            self._register()
             self.emit({"event": "mounted", "mountpoint": self.mount_path})
 
         def on_init() -> None:
@@ -140,6 +148,7 @@ class Worker:
             if not mounted.is_set():
                 code = self._fail(protocol.MOUNT_FAILED, f"mount failed ({e})", EXIT_MOUNT)
         finally:
+            self._unregister()
             vfs.close()
             client.close()
             mountpoint.restore(self.mount_path, self.system, self._removed_dir)
@@ -163,6 +172,7 @@ class Worker:
         self._stopping.set()
         if self.system == "Windows":
             # WinFsp removes the mount when the process ends. [VERIFY on Windows]
+            self._unregister()
             mountpoint.restore(self.mount_path, self.system, self._removed_dir)
             self.emit({"event": "unmounted", "mountpoint": self.mount_path})
             os._exit(EXIT_OK)
@@ -171,6 +181,16 @@ class Worker:
             log.warning("unmount of %s failed: %s", self.mount_path, result.message)
             code = protocol.BUSY if result.busy else protocol.MOUNT_FAILED
             self.emit({"event": "error", "code": code, "message": result.message or "unmount failed"})
+
+    def _register(self) -> None:
+        if self.config.registry_dir:
+            p = self.config.profile
+            entry = registry.new_entry(p.id, p.name, self.mount_path, self.config.owner)
+            registry.write(Path(self.config.registry_dir), entry)
+
+    def _unregister(self) -> None:
+        if self.config.registry_dir:
+            registry.remove(Path(self.config.registry_dir), self.config.profile.id, pid=os.getpid())
 
     def _fail(self, code: str, message: str, exit_code: int) -> int:
         log.error("%s: %s", code, message)
@@ -187,6 +207,8 @@ def _command_loop(worker: Worker, stream: IO[str]) -> None:
             worker.stop(force=bool(message.get("force")))
         elif message.get("cmd") == "ping":
             worker.emit({"event": "pong"})
+    if worker.config.detach:
+        return  # started by `valhallisc connect`: stays mounted until `disconnect`
     # EOF: the parent is gone - do not leave an orphaned mount behind
     if not worker._stopping.is_set():
         log.info("stdin closed; unmounting")

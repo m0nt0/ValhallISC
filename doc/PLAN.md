@@ -714,6 +714,35 @@ Clean up after every test: delete the created items and restore the modified see
 
 ---
 
+### Phase 11: Headless CLI (added at the user's request)
+
+**Goal:** everything the tray app does can also be done from the command line, for scripts and CI.
+
+**Tasks:**
+- Sub-commands: `profile list|show|create|update|delete`, `test`, `connect`, `disconnect`, `status`. Flag-style aliases (`--create-profile NAME`, `--connect NAME`, …) are rewritten to the sub-commands.
+- `--batch`: never prompt, print one JSON object on stdout, and use fixed exit codes: 0 ok, 1 error, 2 usage or invalid, 3 login, 4 mount, 5 not found, 6 busy or connected.
+- `connect` starts a **detached** worker that outlives the CLI. A worker started with `detach` ignores EOF on stdin.
+- A **mount registry** (`<config>/mounts/<profile id>.json`, written by every worker once mounted and removed on exit; entries with a dead pid are ignored) is shared by the CLI and the tray:
+  - the tray shows CLI mounts as mounted and can unmount them;
+  - the CLI can disconnect tray mounts;
+  - the tray's startup cleanup skips live mounts;
+  - a clean external unmount (worker exit code 0) isn't reported as a crash.
+- Passwords come from `--password-stdin`, `VALHALLISC_PASSWORD`, `--password` (discouraged), or an interactive prompt. They're never printed.
+
+**Tests:**
+- *Unit:* alias rewriting, profile CRUD through `main()`, JSON output and exit codes, validation field errors, not-found for every command, a connected profile can't be deleted, `connect` without FUSE (4) or without a password (3), and the registry (stale entries dropped).
+- *E2E:*
+  - full lifecycle: create → test → connect (the CLI exits, the mount stays) → read and import by copying → status → idempotent connect → delete refused → disconnect → delete;
+  - wrong password → 3;
+  - busy disconnect → 6, then `--force` works;
+  - the tray manager sees a CLI mount and unmounts it;
+  - the CLI disconnects a tray mount with no crash report.
+
+**GATE G11**
+- [ ] Unit and e2e CLI tests green on macOS and Linux (e2e run 3× in a row).
+- [ ] The leftover check stays green (detached workers are always cleaned up).
+- [ ] The binary smoke test runs the same flow with the packaged executable (`IRISFS_BIN`).
+
 ## 5. Future work (out of scope for v1, as `doc/idea` says)
 
 - Creating new items without XML (for example writing `Foo.cls` as UDL and treating it as a create), with UDL mode as an optional second view (`<NS>/.udl/...`).
@@ -753,3 +782,4 @@ Clean up after every test: delete the created items and restore the modified see
 | G8 | Tray and Profiles GUI | Linux (Xvfb) + macOS manual |
 | G9 | Packaged binaries | macOS `.app` + CLI, Linux onefile |
 | G10 | Windows | the user |
+| G11 | Headless CLI (`--batch`, profiles, connect and disconnect, shared mount registry) | macOS + Linux |

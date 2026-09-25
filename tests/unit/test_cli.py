@@ -6,7 +6,18 @@ import pytest
 from irisfs import __version__
 from irisfs.cli import build_parser, main
 
-COMMANDS = ["gui", "mount", "unmount", "worker", "profiles", "doctor"]
+COMMANDS = [
+    "gui",
+    "mount",
+    "unmount",
+    "worker",
+    "doctor",
+    "profile",
+    "test",
+    "connect",
+    "disconnect",
+    "status",
+]
 
 
 @pytest.mark.parametrize("command", COMMANDS)

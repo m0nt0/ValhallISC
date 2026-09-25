@@ -34,15 +34,16 @@ def main() -> None:
     w = gray.size[0]
     alpha = alpha_from_darkness(gray)
 
-    # Tray: inner circle (valknut + inner ring), lines thickened so they survive downscaling.
-    c, r = w // 2, int(w * 0.33)
+    # Tray: inner circle (valknut + inner ring), lines thickened a lot so they stay bold at 22 px
+    # (MaxFilter 31 at 1024 px; 9 was too thin in the menu bar, 41 closes the gaps between triangles).
+    c, r = w // 2, int(w * 0.335)
     circle = Image.new("L", gray.size, 0)
     ImageDraw.Draw(circle).ellipse((c - r, c - r, c + r, c + r), fill=255)
-    inner = Image.composite(alpha, Image.new("L", gray.size, 0), circle).filter(ImageFilter.MaxFilter(9))
+    inner = Image.composite(alpha, Image.new("L", gray.size, 0), circle).filter(ImageFilter.MaxFilter(31))
     inner = inner.crop((c - r, c - r, c + r, c + r))
     ICONS.mkdir(parents=True, exist_ok=True)
     for px, name in ((22, "tray.png"), (44, "tray@2x.png")):
-        small = inner.resize((px, px), Image.LANCZOS).point(lambda v: min(255, int(v * 1.5)))
+        small = inner.resize((px, px), Image.LANCZOS).point(lambda v: min(255, int(v * 1.4)))
         glyph(small, (0, 0, 0)).save(ICONS / name)
 
     # App icon: full logo, black on a white disc (reads well on light and dark backgrounds).

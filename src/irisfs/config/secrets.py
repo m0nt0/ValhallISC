@@ -107,6 +107,8 @@ def keyring_usable() -> bool:
 
 
 def default_store(config_dir: Path) -> SecretStore:
+    if os.environ.get("VALHALLISC_SECRETS") == "file":  # tests / headless setups: never touch the OS keyring
+        return FileSecretStore(config_dir / "secrets.json")
     if keyring_usable():
         return KeyringSecretStore()
     store = FileSecretStore(config_dir / "secrets.json")

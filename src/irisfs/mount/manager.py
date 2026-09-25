@@ -20,11 +20,12 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import IO, Any
 
 from irisfs.config import mountpoint
 from irisfs.config.store import ProfileStore
-from irisfs.mount import protocol
+from irisfs.mount import protocol, registry
 from irisfs.mount.unmount import UnmountResult, canonical, is_mounted, mount_table, unmount
 
 log = logging.getLogger(__name__)
@@ -84,8 +85,10 @@ class MountManager:
         stop_timeout: float = 5.0,
         unmount_fn: UnmountFn = unmount,
         env: dict[str, str] | None = None,
+        registry_dir: Path | None = None,
     ) -> None:
         self.store = store
+        self.registry_dir = registry_dir or registry.registry_dir(store.path.parent)
         self.worker_command = worker_command or default_worker_command()
         self.system = system or platform.system()
         self.mount_timeout = mount_timeout
@@ -95,21 +98,35 @@ class MountManager:
         self._lock = threading.RLock()
         self._mounts: dict[str, _Mount] = {}
         self._subscribers: list[Subscriber] = []
+        self._external_stopping: set[str] = set()
         store.is_active = self.is_active
 
     # ---- queries -----------------------------------------------------------------------------
     def state(self, profile_id: str) -> State:
         with self._lock:
             m = self._mounts.get(profile_id)
-            return m.state if m else State.INACTIVE
+            if m is not None:
+                return m.state
+            if profile_id in self._external_stopping:
+                return State.UNMOUNTING
+        return State.ACTIVE if self.external(profile_id) else State.INACTIVE
+
+    def external(self, profile_id: str) -> registry.MountEntry | None:
+        """A live mount of this profile that this manager did not start (e.g. `valhallisc connect`)."""
+        with self._lock:
+            if profile_id in self._mounts:
+                return None
+        return registry.get(self.registry_dir, profile_id)
 
     def is_active(self, profile_id: str) -> bool:
         """True while a profile is mounted or changing state (it must not be edited or deleted)."""
         return self.state(profile_id) is not State.INACTIVE
 
     def active_paths(self) -> dict[str, str]:
+        paths = {e.mountpoint: e.name for e in registry.entries(self.registry_dir).values()}
         with self._lock:
-            return {m.path: m.name for m in self._mounts.values()}
+            paths.update({m.path: m.name for m in self._mounts.values()})
+        return paths
 
     def subscribe(self, callback: Subscriber) -> None:
         with self._lock:
@@ -130,6 +147,8 @@ class MountManager:
         with self._lock:
             if profile_id in self._mounts:
                 raise MountError(f"'{profile.name}' is already {self._mounts[profile_id].state.value}")
+            if self.external(profile_id):
+                raise MountError(f"'{profile.name}' is already connected (from the command line)")
             try:
                 mountpoint.validate(profile.mount_point, self.system, in_use=self.active_paths())
             except mountpoint.MountPointError as e:
@@ -147,7 +166,14 @@ class MountManager:
             )
             m = _Mount(profile_id, profile.name, profile.mount_point, proc)
             self._mounts[profile_id] = m
-        self._send(m, {"cmd": "start", "profile": profile.to_dict(), "password": password})
+        start = {
+            "cmd": "start",
+            "profile": profile.to_dict(),
+            "password": password,
+            "owner": "tray",
+            "registry_dir": str(self.registry_dir),
+        }
+        self._send(m, start)
         threading.Thread(
             target=self._read_events, args=(m,), name=f"events-{profile.name}", daemon=True
         ).start()
@@ -207,7 +233,9 @@ class MountManager:
                 del self._mounts[m.profile_id]
         code = m.proc.returncode
         message = None
-        if previous is State.ACTIVE:
+        if previous is State.ACTIVE and code == 0:
+            log.info("%s was unmounted outside the app (eject, `valhallisc disconnect`, ...)", m.name)
+        elif previous is State.ACTIVE:
             message = f"The connection '{m.name}' stopped unexpectedly (exit code {code})"
             log.warning(message)
             self._cleanup_path(m.path)
@@ -236,6 +264,11 @@ class MountManager:
         with self._lock:
             m = self._mounts.get(profile_id)
             if m is None:
+                entry = self.external(profile_id)
+                if entry is not None:
+                    self._external_stopping.add(profile_id)
+                    threading.Thread(target=self._stop_external, args=(entry, force), daemon=True).start()
+                    self._publish(Change(profile_id, State.UNMOUNTING))
                 return
             if m.state is State.MOUNTING:
                 force = True  # abort a mount in progress
@@ -259,6 +292,19 @@ class MountManager:
         if m.exited.wait(self.stop_timeout):
             return
         self._kill(m)
+
+    def _stop_external(self, entry: registry.MountEntry, force: bool) -> None:
+        from irisfs.mount.detached import disconnect
+
+        result = disconnect(entry, force=force, system=self.system)
+        with self._lock:
+            self._external_stopping.discard(entry.profile_id)
+        if result.ok:
+            self._publish(Change(entry.profile_id, State.INACTIVE))
+        else:
+            code = protocol.BUSY if result.busy else protocol.MOUNT_FAILED
+            event = {"event": "error", "code": code, "message": result.message}
+            self._publish(Change(entry.profile_id, State.ACTIVE, event, result.message))
 
     def _kill(self, m: _Mount) -> None:
         if m.proc.poll() is None:
@@ -288,6 +334,8 @@ class MountManager:
     def cleanup_stale(self) -> list[str]:
         """Unmount irisfs mounts left behind at profile mount points (e.g. after a crash)."""
         ours = set(irisfs_mounts())
+        live = {canonical(e.mountpoint) for e in registry.entries(self.registry_dir).values()}
+        ours -= live  # mounts whose worker is alive (CLI `connect`) are not stale
         cleaned = []
         for p in self.store.profiles():
             path = canonical(p.mount_point) if p.mount_point else ""

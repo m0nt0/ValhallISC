@@ -6,7 +6,7 @@ import argparse
 import platform
 import sys
 from collections.abc import Callable, Sequence
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from irisfs import APP_NAME, CLI_NAME, GIT_SHA, __version__, log
 from irisfs.mount import fuselib
@@ -132,21 +132,31 @@ def cmd_unmount(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_profiles(args: argparse.Namespace) -> int:
-    store = _store()
-    if store.load_warning:
-        print(f"warning: {store.load_warning}", file=sys.stderr)
-    for p in store.profiles():
-        flags = " (read-only)" if p.read_only else ""
-        print(f"{p.name}: {p.username}@{p.base_url} -> {p.mount_point}{flags}")
-    return 0
+def _with_output(fn: Callable[[argparse.Namespace, Any], int]) -> Handler:
+    from irisfs.clicommands import Output
+
+    def run(args: argparse.Namespace) -> int:
+        return fn(args, Output(args.batch))
+
+    return run
 
 
 def build_parser() -> tuple[argparse.ArgumentParser, dict[str, Handler]]:
-    parser = argparse.ArgumentParser(prog=CLI_NAME, description="Mount InterSystems IRIS code as files.")
+    parser = argparse.ArgumentParser(
+        prog=CLI_NAME,
+        description=f"{APP_NAME}: mount InterSystems IRIS code as files. "
+        "Without a command the tray app starts.",
+        epilog="Flag-style aliases: --list-profiles, --show-profile NAME, --create-profile NAME, "
+        "--update-profile NAME, --delete-profile NAME, --test NAME, --connect NAME, "
+        "--disconnect NAME, --status. "
+        "Exit codes: 0 ok, 1 error, 2 usage/invalid, 3 login, 4 mount, 5 not found, 6 busy/connected.",
+    )
     version = f"%(prog)s {__version__}" + (f" ({GIT_SHA})" if GIT_SHA else "")
     parser.add_argument("--version", action="version", version=version)
     parser.add_argument("-v", "--verbose", action="store_true", help="debug logging")
+    parser.add_argument(
+        "--batch", action="store_true", help="never prompt; print JSON; use documented exit codes"
+    )
     sub = parser.add_subparsers(dest="command")
     handlers: dict[str, Handler] = {}
 
@@ -171,8 +181,12 @@ def build_parser() -> tuple[argparse.ArgumentParser, dict[str, Handler]]:
     sub.add_parser("worker", help=argparse.SUPPRESS)  # internal: mount worker, JSON lines on stdin/stdout
     handlers["worker"] = cmd_worker
 
-    p = sub.add_parser("profiles", help="list configured profiles")
-    handlers["profiles"] = cmd_profiles
+    from irisfs import clicommands
+
+    batch_handlers: dict[str, Any] = {}
+    clicommands.add_commands(sub, batch_handlers)
+    for name, fn in batch_handlers.items():
+        handlers[name] = _with_output(fn)
 
     sub.add_parser("doctor", help="print environment diagnostics")
     handlers["doctor"] = cmd_doctor
@@ -180,8 +194,10 @@ def build_parser() -> tuple[argparse.ArgumentParser, dict[str, Handler]]:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    from irisfs.clicommands import rewrite_aliases
+
     parser, handlers = build_parser()
-    args = parser.parse_args(argv)
+    args = parser.parse_args(rewrite_aliases(sys.argv[1:] if argv is None else argv))
     if args.command is None:
         args.command = "gui"
     return handlers[args.command](args)

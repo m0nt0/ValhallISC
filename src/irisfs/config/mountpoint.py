@@ -131,6 +131,20 @@ def validate(
         raise MountPointError(f"{raw} is not writable by the current user")
 
 
+def ensure_folder(mount_point: str, system: str) -> None:
+    """Create what the platform needs before mounting: macOS/Linux mount on an existing empty folder,
+    WinFsp needs the folder itself to be missing (only its parent is created); drive letters need nothing."""
+    from pathlib import Path
+
+    raw = mount_point.strip()
+    if not raw or _DRIVE_RE.match(raw):
+        return
+    if system == "Windows":
+        Path(raw).parent.mkdir(parents=True, exist_ok=True)
+    elif not os.path.exists(raw):
+        Path(raw).mkdir(parents=True)
+
+
 def prepare(path: str, system: str, *, probe: FsProbe | None = None) -> bool:
     """Make `path` mountable. Returns True if a directory was removed (restore() must recreate it)."""
     probe = probe or RealProbe()

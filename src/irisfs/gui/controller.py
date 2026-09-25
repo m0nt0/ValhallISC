@@ -7,9 +7,7 @@ come back through `call_ui` (wx.CallAfter in the app, immediate calls in tests).
 from __future__ import annotations
 
 import logging
-import os
 import platform
-import re
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -18,6 +16,7 @@ from pathlib import Path
 from irisfs import APP_NAME
 from irisfs.atelier.client import AtelierClient
 from irisfs.atelier.errors import AtelierError
+from irisfs.config import mountpoint
 from irisfs.config.profile import Profile, ProfileValidationError
 from irisfs.config.store import ProfileActiveError, ProfileStore
 from irisfs.gui.prompter import Prompter
@@ -45,6 +44,7 @@ class ProfileItem:
     name: str
     state: State
     mount_point: str
+    external: bool = False  # mounted by `valhallisc connect`, not by this app
 
     @property
     def active(self) -> bool:
@@ -56,6 +56,8 @@ class ProfileItem:
             return f"{self.name} (connecting…)"
         if self.state is State.UNMOUNTING:
             return f"{self.name} (unmounting…)"
+        if self.external:
+            return f"{self.name} (connected from CLI)"
         return self.name
 
     @property
@@ -109,7 +111,10 @@ class AppController:
 
     def profile_items(self) -> list[ProfileItem]:
         items = [
-            ProfileItem(p.id, p.name, self.manager.state(p.id), p.mount_point) for p in self.store.profiles()
+            ProfileItem(
+                p.id, p.name, self.manager.state(p.id), p.mount_point, self.manager.external(p.id) is not None
+            )
+            for p in self.store.profiles()
         ]
         return sorted(items, key=lambda i: i.name.casefold())
 
@@ -147,18 +152,10 @@ class AppController:
         self._changed()
 
     def _prepare_folder(self, mount_point: str) -> None:
-        """macOS/Linux mount on an existing empty folder: create it. WinFsp needs the folder itself to be
-        missing, so on Windows only its parent is created (drive letters need nothing)."""
-        if not mount_point or re.match(r"^[A-Za-z]:\\?$", mount_point.strip()):
-            return
-        path = Path(mount_point)
-        if self.system == "Windows":
-            path.parent.mkdir(parents=True, exist_ok=True)
-        elif not os.path.exists(mount_point):
-            path.mkdir(parents=True)
+        mountpoint.ensure_folder(mount_point, self.system)
 
     def on_quit(self) -> None:
-        active = [i for i in self.profile_items() if i.active]
+        active = [i for i in self.profile_items() if i.active and not i.external]  # CLI mounts stay
         message = f"Quit {APP_NAME}?"
         if active:
             names = ", ".join(i.name for i in active)

@@ -55,6 +55,9 @@ class FakeManager:
     def is_active(self, pid: str) -> bool:
         return self.state(pid) is not State.INACTIVE
 
+    def external(self, pid: str) -> None:
+        return None
+
     def mount(self, pid: str) -> None:
         if self.mount_error:
             raise MountError(self.mount_error)
