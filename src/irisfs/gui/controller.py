@@ -23,7 +23,7 @@ from irisfs.config import mountpoint
 from irisfs.config.profile import Profile, ProfileValidationError
 from irisfs.config.store import ProfileActiveError, ProfileStore
 from irisfs.gui.prompter import Prompter
-from irisfs.mount import fuselib, protocol
+from irisfs.mount import fuse_help, protocol
 from irisfs.mount.manager import Change, MountError, MountManager, State
 
 log = logging.getLogger(__name__)
@@ -138,6 +138,8 @@ class AppController:
         self.quit_wait = quit_wait
         self._listeners: list[Task] = []
         self._opener: Callable[[str], None] | None = None  # tests replace the file-manager launcher
+        self.fuse_check: Callable[[], fuse_help.Advice | None] = self.default_fuse_check
+        self.fuse_missing_handler: Callable[[fuse_help.Advice], None] | None = None
         self.quitting = False
         manager.subscribe(lambda change: self.call_ui(lambda: self.handle_change(change)))
 
@@ -197,9 +199,18 @@ class AppController:
             self._mount(profile)
         # MOUNTING / UNMOUNTING: menu item is disabled; ignore stray clicks
 
+    def default_fuse_check(self) -> fuse_help.Advice | None:
+        # /dev/fuse can only be probed for the platform we actually run on (tests simulate others)
+        native = self.system == platform.system()
+        return fuse_help.advice(self.system, dev_fuse_exists=None if native else True)
+
     def _mount(self, profile: Profile) -> None:
-        if fuselib.find_library(self.system) is None:
-            self.prompter.error(APP_NAME, f"{_ERROR_TEXT[protocol.FUSE_MISSING]}\n\n{fuselib.hint()}")
+        advice = self.fuse_check()
+        if advice is not None:
+            if self.fuse_missing_handler is not None:
+                self.fuse_missing_handler(advice)  # the app shows the install dialog
+            else:
+                self.prompter.error(APP_NAME, advice.as_text())
             return
         if self.store.password(profile.id) is None:
             self.prompter.error(

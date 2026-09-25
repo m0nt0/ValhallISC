@@ -31,7 +31,10 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     lib = fuselib.find_library()
     if lib is None:
         ok = False
-        lines.append(f"fuse: NOT FOUND - {fuselib.hint()}")
+        lines.append("fuse: NOT FOUND")
+        lines.append("")
+        lines.append(fuselib.hint())
+        lines.append("")
     else:
         lines.append(
             f"fuse: {lib.kind} at {lib.path}" + (f" (WARNING: {lib.problem})" if lib.problem else "")

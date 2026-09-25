@@ -124,7 +124,11 @@ def ensure_loaded() -> ModuleType:
 
 
 def hint() -> str:
-    return INSTALL_HINTS.get(platform.system(), "")
+    """Install instructions tailored to this machine (package manager, distribution)."""
+    from irisfs.mount import fuse_help
+
+    tailored = fuse_help.advice()
+    return tailored.as_text() if tailored else INSTALL_HINTS.get(platform.system(), "")
 
 
 def is_frozen() -> bool:

@@ -6,6 +6,10 @@ PY=${PYTHON:-.venv/bin/python}
 source scripts/_build_info.sh
 "$PY" -m PyInstaller --noconfirm --clean --distpath dist --workpath build packaging/valhallisc.spec
 rm -rf dist/ValhallISC-onedir   # intermediate onedir folder; the .app bundle contains it
+# guard: the FUSE layer must never be bundled (see packaging/valhallisc.spec)
+if find dist/ValhallISC.app -iname '*fuse*' -o -iname '*MFMount*' | grep -q .; then
+  echo "ERROR: FUSE libraries were bundled into the app" >&2; exit 1
+fi
 # CLI wrapper: runs the bundle's executable (a onefile binary would start in 10-100 s on macOS, ADR-009)
 cat > dist/valhallisc <<'SH'
 #!/bin/sh

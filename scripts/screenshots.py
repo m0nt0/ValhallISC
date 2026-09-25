@@ -98,6 +98,28 @@ def main(out: Path) -> None:
     grab(frame, out / "profiles-validation-errors.png")
     frame.dirty = False
     frame.Destroy()
+
+    from irisfs.gui.fuse_dialog import FuseMissingDialog
+    from irisfs.mount import fuse_help
+
+    advice = fuse_help.advice(
+        "Linux", os_release={"ID": "ubuntu", "PRETTY_NAME": "Ubuntu 24.04 LTS"}, library=None
+    )
+    assert advice is not None
+    dialog = FuseMissingDialog(advice, lambda: advice)
+    dialog.SetPosition(wx.Point(20, 20))
+    dialog.Show()
+    grab(dialog, out / "fuse-missing-linux.png")
+    mac = fuse_help.advice(
+        "Darwin", which=lambda name: "/opt/homebrew/bin/brew" if name == "brew" else None, library=None
+    )
+    assert mac is not None
+    dialog.Destroy()
+    dialog = FuseMissingDialog(mac, lambda: mac)
+    dialog.SetPosition(wx.Point(20, 20))
+    dialog.Show()
+    grab(dialog, out / "fuse-missing-macos.png")
+    dialog.Destroy()
     app.Destroy()
 
 

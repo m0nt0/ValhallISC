@@ -7,6 +7,16 @@ name = "irisfs"
 version = "0.1.0"
 description = "ValhallISC: mount InterSystems IRIS code (classes, routines, ...) as a local filesystem"
 requires-python = ">=3.12"
+license = {text = "GPL-3.0-or-later"}
+authors = [{name = "Pietro Montorfano"}]
+classifiers = [
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Topic :: System :: Filesystems",
+]
 dependencies = [
     "httpx>=0.28",
     "defusedxml>=0.7",
@@ -52,7 +62,7 @@ select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
 python_version = "3.12"
 strict = true
 files = ["src/irisfs"]
-exclude = ["src/irisfs/gui/(app|tray|profiles_frame|wxprompter|icons)\\.py"]
+exclude = ["src/irisfs/gui/(app|tray|profiles_frame|wxprompter|icons|fuse_dialog)\\.py"]
 
 [[tool.mypy.overrides]]
 module = ["mfusepy", "keyring.*", "wx.*", "AppKit", "defusedxml.*"]

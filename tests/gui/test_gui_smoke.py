@@ -268,3 +268,30 @@ def test_app_starts_and_exits(tmp_path: Path, wx_app: Any) -> None:
     )
     assert r.returncode == 0, r.stderr[-2000:]
     assert "started" in r.stderr and "exiting" in r.stderr
+
+
+def test_fuse_missing_dialog(wx_app: Any) -> None:
+    from irisfs.gui.fuse_dialog import FuseMissingDialog
+    from irisfs.mount import fuse_help
+
+    advice = fuse_help.Advice(
+        "FUSE 3 is needed",
+        "Install it with:",
+        ("sudo apt install fuse3",),
+        (("libfuse project", fuse_help.LIBFUSE_URL),),
+        ("allow it in Privacy & Security",),
+    )
+    results: list[fuse_help.Advice | None] = [advice, None]
+    dlg = FuseMissingDialog(advice, lambda: results.pop(0))
+    try:
+        assert dlg.commands is not None and dlg.commands.GetValue() == "sudo apt install fuse3"
+        assert [link.GetURL() for link in dlg.links] == [fuse_help.LIBFUSE_URL]
+        import wx
+
+        notes = [w.GetLabelText() for w in dlg.GetChildren()[0].GetChildren() if isinstance(w, wx.StaticText)]
+        assert any("Privacy & Security" in n for n in notes)  # '&' must survive (wx mnemonic escaping)
+        assert dlg.on_check() is False and "Still not found" in dlg.status.GetLabel()
+        assert dlg.on_check() is True and "FUSE found" in dlg.status.GetLabel()
+    finally:
+        dlg.Destroy()
+        pump(wx_app)

@@ -35,4 +35,6 @@ The password is taken from `--password-stdin`, the `VALHALLISC_PASSWORD` environ
 
 Mounts made with `connect` and by the tray app share a registry, so each side sees, and can disconnect, the other's mounts.
 
+When no FUSE driver is usable, `connect` fails with exit code 4 and `valhallisc doctor` prints install instructions tailored to the machine (package manager and distribution).
+
 On macOS the CLI is `dist/valhallisc` (a wrapper around `ValhallISC.app`). On Windows it's `valhallisc-cli.exe`.

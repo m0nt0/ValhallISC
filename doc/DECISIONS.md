@@ -104,3 +104,16 @@
   - **Profile form:** a Connection tab (Server / Sign in / Mount) and an Options tab (URL prefix, system items, compile). Errors appear under their field, and the test result is shown inline. The fields scroll above a fixed footer, because growing the window proved unreliable with GTK's asynchronous resizes.
   - **Read-only form while mounted (spec):** kept, now with a banner offering Open folder and Unmount….
 - The macOS combined menu (ADR-005) and the Windows/Linux left/right split are unchanged.
+
+## ADR-011: FUSE is a prerequisite, detected and explained, and never bundled
+- **Never bundled:** PyInstaller had pulled macFUSE's `libfuse*.dylib` and `MFMount.framework` into the `.app`, because `mfusepy` loads libfuse at import time. They're now filtered out of every build (`packaging/valhallisc.spec`), and the macOS build script fails if any reappear.
+  - macFUSE isn't ours to redistribute.
+  - The user-space library must match the installed driver.
+  - `fuselib` always loads the installed library by absolute path.
+  - `libiconv` stays, because the MacPorts Python itself needs it.
+- **Startup check:** `irisfs/mount/fuse_help.py` produces tailored `Advice` (title, intro, commands, links, notes). The logic is pure, with injectable probes, and tested for every branch:
+  - **macOS:** a Homebrew command (FUSE-T tap, or the macFUSE cask), a MacPorts command (`port install macfuse`), or download links. Also the case "macFUSE present but not fully installed".
+  - **Linux:** `/etc/os-release` `ID`, then `ID_LIKE`, mapped to apt, dnf, pacman, emerge, zypper, apk, xbps, eopkg or NixOS. Unknown distributions get a generic hint and the libfuse link. If libfuse is present but `/dev/fuse` is missing, the advice is `modprobe`.
+  - **Windows:** a `winget` command when available, and the WinFsp download page.
+- **The tray app** shows a modeless `FuseMissingDialog` (copy the commands, open the links, Check again) at startup and when a mount is attempted. `doctor` and the CLI print the same text.
+- **Single instance per settings folder** (`VALHALLISC_CONFIG_DIR`): discovered when the test suite ran next to the user's own running app.

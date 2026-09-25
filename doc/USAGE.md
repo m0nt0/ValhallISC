@@ -19,6 +19,26 @@ It runs as an icon in the menu bar (macOS) or the system tray (Windows, Linux), 
 
 **The IRIS server must offer its web API**, `/api/atelier/`, the same one VS Code's ObjectScript extension uses. This needs IRIS 2023.2 or later; the default web port is **52773**. The IRIS user needs the `%Development` resource. Importing also needs write access to the namespace's code database.
 
+**You don't have to look this up.** At startup, and whenever you try to mount, ValhallISC checks for a usable FUSE driver. If there isn't one, it opens a window with instructions for *your* machine, and you can install and then click **Check again**:
+
+| Your system | What the window suggests |
+|---|---|
+| macOS with Homebrew | `brew install macos-fuse-t/cask/fuse-t` (or `brew install --cask macfuse`) |
+| macOS with MacPorts | `sudo port install macfuse` |
+| macOS without either | links to the FUSE-T and macFUSE installers |
+| Debian, Ubuntu, Mint, Pop!_OS… | `sudo apt install fuse3` |
+| Fedora, RHEL, Rocky, AlmaLinux, CentOS… | `sudo dnf install fuse3` |
+| Arch, Manjaro, EndeavourOS… | `sudo pacman -S fuse3` |
+| Gentoo | `sudo emerge --ask sys-fs/fuse:3` |
+| openSUSE / SLES | `sudo zypper install fuse3` |
+| Alpine, Void, Solus, NixOS | the matching `apk` / `xbps-install` / `eopkg` command, or the NixOS configuration line |
+| Linux with libfuse but no `/dev/fuse` | `sudo modprobe fuse` (and how to load it at boot) |
+| Windows | `winget install WinFsp.WinFsp` when winget is available, and the WinFsp download page |
+
+The distribution is recognised from `/etc/os-release`, including derivatives through `ID_LIKE`. Commands can be copied with one click. The same instructions are printed by `valhallisc doctor` and by the command line when a mount needs FUSE.
+
+<p align="center"><img src="screenshots/fuse-missing-macos.png" width="420" alt="FUSE is needed dialog on macOS"></p>
+
 Run `valhallisc doctor` to check a machine. It lists the FUSE driver found, the keyring used for passwords, and the settings and log folders.
 
 ## 2. Install and start
@@ -120,7 +140,7 @@ valhallisc --batch --disconnect Dev
 
 | Problem | What to do |
 |---|---|
-| "No FUSE driver is installed" | Install the driver from section 1, then run `valhallisc doctor`. |
+| "A FUSE driver is needed" window | Run the command it shows (or use its download link), then click **Check again**. macFUSE may need approval in System Settings → Privacy & Security and a restart. |
 | "The server rejected the user name or password" | Check user and password with **Test connection**. The user needs `%Development`. |
 | "The server could not be reached" | Check host, port, HTTPS and URL prefix. Try `http://host:52773/api/atelier/` in a browser. Check firewalls. |
 | "Parent folder … does not exist" / "is not empty" | Choose another mount folder (see section 3 for the Windows rules). |

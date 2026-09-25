@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import sys
@@ -17,6 +18,7 @@ from irisfs.gui.controller import AppController
 from irisfs.gui.profiles_frame import ProfilesFrame
 from irisfs.gui.tray import TrayIcon
 from irisfs.gui.wxprompter import WxPrompter, bring_to_front
+from irisfs.mount import fuse_help
 from irisfs.mount.manager import MountManager
 
 log = logging.getLogger(__name__)
@@ -41,15 +43,20 @@ class ValhallApp:
         self.wx_app.SetAppDisplayName(APP_NAME)
         self.hidden = wx.Frame(None)  # never shown: keeps the main loop alive for a tray-only app (ADR-005)
         self.profiles: ProfilesFrame | None = None
+        self.fuse_dialog: wx.Dialog | None = None
         self.tray: TrayIcon | None = None
 
     def start(self) -> bool:
-        self.checker = wx.SingleInstanceChecker(f"{APP_NAME}-{wx.GetUserId()}")
+        config_dir = default_config_dir()
+        # One instance per settings folder: instances with separate settings (and mount registries) don't
+        # conflict - e.g. the test suite (VALHALLISC_CONFIG_DIR) next to a running app.
+        folder_id = hashlib.sha1(str(config_dir.resolve()).encode()).hexdigest()[:10]
+        self.checker = wx.SingleInstanceChecker(f"{APP_NAME}-{wx.GetUserId()}-{folder_id}")
         if self.checker.IsAnotherRunning():
+            log.info("another instance is already running for %s", config_dir)
             wx.MessageBox(f"{APP_NAME} is already running (see the menu bar / system tray).", APP_NAME)
             return False
         _hide_dock_icon()
-        config_dir = default_config_dir()
         try:
             store = ProfileStore(config_dir / "profiles.json", secrets=secrets.default_store(config_dir))
         except ProfileStoreError as e:
@@ -64,6 +71,8 @@ class ValhallApp:
             wx.CallAfter(prompter.error, APP_NAME, store.load_warning)
         threading.Thread(target=self._cleanup, name="stale-cleanup", daemon=True).start()
         self.tray = TrayIcon(self.controller, open_profiles=self.open_profiles)
+        self.controller.fuse_missing_handler = self.show_fuse_help
+        wx.CallAfter(self.check_fuse)  # startup check: explain how to install FUSE if it is missing
         if not store.profiles():
             wx.CallAfter(self.open_profiles)  # first run: show where to start
         exit_after = os.environ.get("VALHALLISC_EXIT_AFTER")  # test hook: quit automatically
@@ -71,6 +80,23 @@ class ValhallApp:
             wx.CallLater(int(float(exit_after) * 1000), self.exit)
         log.info("%s started", APP_NAME)
         return True
+
+    def check_fuse(self) -> None:
+        advice = self.controller.fuse_check()
+        if advice is not None:
+            log.warning("FUSE not usable: %s", advice.title)
+            self.show_fuse_help(advice)
+
+    def show_fuse_help(self, advice: fuse_help.Advice) -> None:
+        from irisfs.gui.fuse_dialog import FuseMissingDialog
+
+        if self.fuse_dialog:  # already open: bring it forward
+            self.fuse_dialog.Raise()
+            return
+        bring_to_front()
+        self.fuse_dialog = FuseMissingDialog(advice, self.controller.fuse_check)
+        self.fuse_dialog.Show()  # modeless: the app stays usable (e.g. to edit profiles)
+        self.fuse_dialog.Raise()
 
     def _cleanup(self) -> None:
         cleaned = self.manager.cleanup_stale()

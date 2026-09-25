@@ -45,7 +45,7 @@ cp -R ~/ValhallISC/Dev\ IRIS/USER backup/                   # back up a namespac
 
 ## Quick start
 
-1. Install the FUSE driver for your system.
+1. Install the FUSE driver for your system. If it's missing, ValhallISC tells you at startup how to install it on *your* machine: Homebrew or MacPorts on macOS; apt, dnf, pacman, emerge, zypper, apk… by Linux distribution; winget or the download page on Windows.
 2. Start ValhallISC (`ValhallISC.app`, `ValhallISC.exe`, or the Linux binary run without arguments).
 3. In **Profiles**, click **+**, enter the server, user, password and mount folder, then **Test connection** → **Save**.
 4. Click the menu-bar or tray icon, then click the server: its namespaces appear in the mount folder.
@@ -136,6 +136,6 @@ samples/           an example XML export to try an import
 
 ## License
 
-No license has been chosen yet. Until one is added, all rights are reserved by the author.
+ValhallISC is free software: you can redistribute it and/or modify it under the terms of the **GNU General Public License v3.0 or later** (see [LICENSE](LICENSE)). The components bundled in the packaged apps and their licenses are listed in [doc/THIRD_PARTY.md](doc/THIRD_PARTY.md).
 
 InterSystems and IRIS are trademarks of InterSystems Corporation. This project is not affiliated with, or endorsed by, InterSystems.

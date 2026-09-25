@@ -383,3 +383,17 @@ def test_open_folder(env: Env) -> None:
     env.ctl._opener = fail
     env.ctl.open_folder(p.id)
     assert env.prompter.kinds()[-1] == "error"
+
+
+def test_missing_fuse_opens_the_install_help(env: Env) -> None:
+    from irisfs.mount import fuse_help
+
+    p = env.add()
+    shown: list[fuse_help.Advice] = []
+    env.ctl.fuse_missing_handler = shown.append
+    env.ctl.fuse_check = lambda: fuse_help.Advice(
+        "FUSE 3 is needed", "install it", ("sudo apt install fuse3",)
+    )
+    env.ctl.on_profile_clicked(p.id)
+    assert env.mgr.calls == [] and shown and shown[0].commands == ("sudo apt install fuse3",)
+    assert env.prompter.log == []  # the dialog replaces the generic error

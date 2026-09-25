@@ -24,7 +24,11 @@ if sys.platform == "darwin":
 if sys.platform == "win32":
     hiddenimports += ["win32timezone", "winreg"]
 
-datas = [(str(ROOT / "src" / "irisfs" / "gui" / "icons"), "irisfs/gui/icons")]
+datas = [
+    (str(ROOT / "src" / "irisfs" / "gui" / "icons"), "irisfs/gui/icons"),
+    (str(ROOT / "LICENSE"), "."),  # GPL v3: the license travels with the binaries
+    (str(ROOT / "doc" / "THIRD_PARTY.md"), "."),
+]
 datas += copy_metadata("keyring")  # keyring discovers its backends through entry points
 
 a = Analysis(  # noqa: F821
@@ -35,6 +39,18 @@ a = Analysis(  # noqa: F821
     excludes=["tkinter", "pytest", "hypothesis", "mypy", "ruff", "PIL"],
     noarchive=False,
 )
+# Never bundle the FUSE layer: it is a system prerequisite that must match the installed driver
+# (kernel extension / FSKit / WinFsp service), and macFUSE's libraries are not ours to redistribute.
+# irisfs.mount.fuselib loads the installed library by absolute path at runtime.
+_FUSE_PARTS = ("libfuse", "mfmount", "winfsp")  # (libiconv stays: the MacPorts Python needs it too)
+
+
+def _is_fuse(dest: str) -> bool:
+    return any(part in dest.lower() for part in _FUSE_PARTS)
+
+
+a.binaries = [b for b in a.binaries if not _is_fuse(b[0])]
+a.datas = [d for d in a.datas if not _is_fuse(d[0])]
 pyz = PYZ(a.pure)  # noqa: F821
 
 
