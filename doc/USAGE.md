@@ -45,7 +45,7 @@ Run `valhallisc doctor` to check a machine. It lists the FUSE driver found, the 
 
 | System | What you get | How to start it |
 |---|---|---|
-| macOS | `ValhallISC.app` (zip) and `valhallisc` (command line) | Unzip, move `ValhallISC.app` to Applications, double-click it. Unsigned builds: right-click → Open the first time, or run `xattr -dr com.apple.quarantine ValhallISC.app`. |
+| macOS | `ValhallISC-<version>-macos-<arch>.dmg` (the app, the `valhallisc` command line, the license) | Open the DMG and drag **ValhallISC** onto **Applications**. Copy `valhallisc` somewhere in your `PATH` if you want the command line. Release builds are signed and notarized. For a build that isn't notarized: right-click → Open the first time, or run `xattr -dr com.apple.quarantine /Applications/ValhallISC.app`. |
 | Windows | `ValhallISC.exe` (tray app) and `valhallisc-cli.exe` (command line) | Double-click `ValhallISC.exe`. |
 | Linux | `valhallisc-linux-<arch>` (one file) | Make it executable and run it without arguments for the tray app. It needs glibc 2.39 or newer, `fuse3`, and a desktop with a system tray. On GNOME, enable the *AppIndicator* extension. |
 

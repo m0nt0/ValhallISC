@@ -117,3 +117,19 @@
   - **Windows:** a `winget` command when available, and the WinFsp download page.
 - **The tray app** shows a modeless `FuseMissingDialog` (copy the commands, open the links, Check again) at startup and when a mount is attempted. `doctor` and the CLI print the same text.
 - **Single instance per settings folder** (`VALHALLISC_CONFIG_DIR`): discovered when the test suite ran next to the user's own running app.
+
+## ADR-012: macOS distribution (signing, hardened runtime, notarization)
+- **Channel:** a DMG outside the App Store. The App Store sandbox forbids FUSE and helper processes. This needs a **Developer ID Application** certificate and notarization (`doc/RELEASING.md`).
+- **`scripts/sign-macos.sh`:**
+  - signs every nested Mach-O file inside-out, then the frameworks, then the app, with `--options runtime --timestamp`;
+  - verifies the result;
+  - optionally notarizes and staples the app;
+  - builds a signed DMG (app, CLI wrapper, `LICENSE.txt`, Applications link), and notarizes and staples it too.
+- **Entitlements** (`packaging/entitlements.plist`):
+  - `disable-library-validation`, to load the user's macFUSE/FUSE-T, which another team signs;
+  - `allow-unsigned-executable-memory`, for ctypes/libffi FUSE callbacks.
+- **Verified with an Apple Development identity** (hardened runtime on): the signed app mounts, reads, imports and runs the CLI lifecycle (11 e2e checks with `IRISFS_BIN` = the signed executable). The GUI starts and exits cleanly.
+- **Found while signing:** macFUSE's `libswiftCompatibilitySpan.dylib` (from inside `MFMount.framework`) was being bundled. The FUSE filter now also matches source paths.
+- **Not yet done:**
+  - notarization: waiting for a Developer ID certificate and a notarytool profile;
+  - an Intel or universal2 build: the current build is arm64, because the Python is arm64.

@@ -44,3 +44,12 @@ def test_doctor_runs_as_module() -> None:
     assert "ValhallISC" in r.stdout
     assert "fuse:" in r.stdout
     assert r.returncode in (0, 1), r.stderr
+
+
+def test_version_matches_pyproject() -> None:
+    import tomllib
+
+    from tests.conftest import ROOT
+
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
+    assert project["version"] == __version__  # the spec reads pyproject; the app reads __version__

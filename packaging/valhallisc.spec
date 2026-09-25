@@ -12,7 +12,9 @@ from PyInstaller.utils.hooks import collect_submodules, copy_metadata
 
 ROOT = Path(SPECPATH).parent  # noqa: F821 - SPECPATH is injected by PyInstaller
 ASSETS = ROOT / "assets"
-VERSION = "0.1.0"
+import tomllib
+
+VERSION = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]  # single source
 
 hiddenimports = (
     ["irisfs._build", "mfusepy"]
@@ -42,15 +44,18 @@ a = Analysis(  # noqa: F821
 # Never bundle the FUSE layer: it is a system prerequisite that must match the installed driver
 # (kernel extension / FSKit / WinFsp service), and macFUSE's libraries are not ours to redistribute.
 # irisfs.mount.fuselib loads the installed library by absolute path at runtime.
-_FUSE_PARTS = ("libfuse", "mfmount", "winfsp")  # (libiconv stays: the MacPorts Python needs it too)
+_FUSE_PARTS = ("libfuse", "mfmount", "winfsp", "macfuse", "fuse-t")  # (libiconv stays: Python needs it)
 
 
-def _is_fuse(dest: str) -> bool:
-    return any(part in dest.lower() for part in _FUSE_PARTS)
+def _is_fuse(entry: tuple[str, str, str]) -> bool:
+    # match the destination name AND the source path: libswiftCompatibilitySpan.dylib comes from inside
+    # macfuse.fs/…/MFMount.framework and its own name doesn't mention fuse
+    dest, source = entry[0].lower(), str(entry[1]).lower()
+    return any(part in dest or part in source for part in _FUSE_PARTS)
 
 
-a.binaries = [b for b in a.binaries if not _is_fuse(b[0])]
-a.datas = [d for d in a.datas if not _is_fuse(d[0])]
+a.binaries = [b for b in a.binaries if not _is_fuse(b)]
+a.datas = [d for d in a.datas if not _is_fuse(d)]
 pyz = PYZ(a.pure)  # noqa: F821
 
 
