@@ -29,7 +29,8 @@ class WxPrompter:
     def _parent(self) -> wx.Window | None:
         if callable(self._parent_getter):
             window = self._parent_getter()
-            if isinstance(window, wx.Window) and window.IsShown():
+            # A closed Profiles window may still be referenced; its wrapper is then falsy (C++ side deleted).
+            if isinstance(window, wx.Window) and bool(window) and window.IsShown():
                 return window
         return None
 

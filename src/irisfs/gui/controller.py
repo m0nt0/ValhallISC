@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import os
 import platform
+import re
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -134,17 +135,27 @@ class AppController:
                 APP_NAME, f"No password is saved for “{profile.name}”. Open Profiles… to set it."
             )
             return
-        if self.system != "Windows" and profile.mount_point and not os.path.exists(profile.mount_point):
-            try:
-                Path(profile.mount_point).mkdir(parents=True)  # WinFsp instead needs a missing folder
-            except OSError as e:
-                self.prompter.error(APP_NAME, f"Cannot create {profile.mount_point}: {e}")
-                return
+        try:
+            self._prepare_folder(profile.mount_point)
+        except OSError as e:
+            self.prompter.error(APP_NAME, f"Cannot create the folder for {profile.mount_point}: {e}")
+            return
         try:
             self.manager.mount(profile.id)
         except MountError as e:
             self.prompter.error(f"Cannot mount “{profile.name}”", str(e))
         self._changed()
+
+    def _prepare_folder(self, mount_point: str) -> None:
+        """macOS/Linux mount on an existing empty folder: create it. WinFsp needs the folder itself to be
+        missing, so on Windows only its parent is created (drive letters need nothing)."""
+        if not mount_point or re.match(r"^[A-Za-z]:\\?$", mount_point.strip()):
+            return
+        path = Path(mount_point)
+        if self.system == "Windows":
+            path.parent.mkdir(parents=True, exist_ok=True)
+        elif not os.path.exists(mount_point):
+            path.mkdir(parents=True)
 
     def on_quit(self) -> None:
         active = [i for i in self.profile_items() if i.active]

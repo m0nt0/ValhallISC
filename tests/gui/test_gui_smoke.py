@@ -166,3 +166,15 @@ def test_app_starts_and_exits(tmp_path: Path, wx_app: Any) -> None:
     )
     assert r.returncode == 0, r.stderr[-2000:]
     assert "started" in r.stderr and "exiting" in r.stderr
+
+
+def test_prompter_ignores_destroyed_parent(env: Env, wx_app: Any) -> None:
+    # Regression (Windows): an error after the Profiles window was closed crashed with
+    # "wrapped C/C++ object of type ProfilesFrame has been deleted".
+    from irisfs.gui.profiles_frame import ProfilesFrame
+    from irisfs.gui.wxprompter import WxPrompter
+
+    f = ProfilesFrame(env.ctl)
+    f.Destroy()
+    pump(wx_app)
+    assert WxPrompter(parent_getter=lambda: f)._parent() is None

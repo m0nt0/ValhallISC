@@ -317,3 +317,18 @@ def test_test_connection_unreachable(env: Env) -> None:
     p = Profile(name="x", host="127.0.0.1", port=9, username="u", mount_point="/m")
     ok, message = env.ctl.test_connection(p, "pw")
     assert not ok and "connect" in message.lower()
+
+
+@pytest.mark.parametrize("system", ["Windows", "Linux"])
+def test_prepare_folder_per_platform(env: Env, system: str) -> None:
+    # Regression (first Windows run): the default ~/ValhallISC/<name> parent was never created on Windows.
+    env.ctl.system = system
+    target = env.tmp / "ValhallISC" / "Local"
+    env.ctl._prepare_folder(str(target))
+    assert target.parent.is_dir()
+    assert target.exists() is (system != "Windows")  # WinFsp needs the folder itself to be missing
+
+
+def test_prepare_folder_drive_letter_is_noop(env: Env) -> None:
+    env.ctl.system = "Windows"
+    env.ctl._prepare_folder("X:")
