@@ -1,0 +1,45 @@
+name: irisfs
+
+services:
+  iris:
+    build:
+      context: ./iris
+      args:
+        IRIS_IMAGE: containers.intersystems.com/intersystems/iris-community:2026.1
+    image: irisfs-test-iris:latest
+    ports:
+      - "52773:52773"
+    healthcheck:
+      # the image has no curl; use its python3
+      test:
+        - CMD
+        - python3
+        - -c
+        - |
+          import base64, urllib.request
+          r = urllib.request.Request("http://localhost:52773/api/atelier/")
+          r.add_header("Authorization", "Basic " + base64.b64encode(b"_SYSTEM:irisfs-test").decode())
+          urllib.request.urlopen(r, timeout=4)
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 20s
+
+  linux-test:
+    build: ./linux-test
+    image: irisfs-linux-test:latest
+    profiles: ["test"]
+    devices:
+      - /dev/fuse
+    cap_add:
+      - SYS_ADMIN
+    security_opt:
+      - apparmor:unconfined
+    volumes:
+      - ..:/work
+    environment:
+      IRISFS_TEST_HOST: iris
+      IRISFS_TEST_PORT: "52773"
+    depends_on:
+      iris:
+        condition: service_healthy

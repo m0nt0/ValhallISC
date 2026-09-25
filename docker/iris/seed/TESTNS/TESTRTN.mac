@@ -1,0 +1,3 @@
+ROUTINE TESTRTN
+TESTRTN ; routine in TESTNS
+    quit

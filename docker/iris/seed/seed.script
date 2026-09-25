@@ -1,0 +1,31 @@
+set $namespace="%SYS"
+// ---- passwords: no forced change, never expire (TEST ONLY) ----
+kill p set p("Password")="irisfs-test",p("ChangePassword")=0,p("PasswordNeverExpires")=1
+for u="_SYSTEM","SuperUser","Admin" { set sc=##class(Security.Users).Modify(u,.p) if 'sc { do $system.Status.DisplayError(sc) } }
+// ---- TESTNS namespace ----
+set dir="/usr/irissys/mgr/testns/"
+do ##class(%File).CreateDirectoryChain(dir)
+set sc=##class(SYS.Database).CreateDatabase(dir) if 'sc { do $system.Status.DisplayError(sc) }
+kill p set p("Directory")=dir set sc=##class(Config.Databases).Create("TESTNS",.p) if 'sc { do $system.Status.DisplayError(sc) }
+set sc=##class(Security.Resources).Create("%DB_TESTNS","TESTNS database","","") if 'sc { do $system.Status.DisplayError(sc) }
+set db=##class(SYS.Database).%OpenId(dir) set db.ResourceName="%DB_TESTNS" set sc=db.%Save() if 'sc { do $system.Status.DisplayError(sc) }
+kill p set p("Globals")="TESTNS",p("Routines")="TESTNS" set sc=##class(Config.Namespaces).Create("TESTNS",.p) if 'sc { do $system.Status.DisplayError(sc) }
+// ---- read-only user: can read code, cannot write it ----
+set sc=##class(Security.Roles).Create("irisfs_ro_role","IRISFS read-only tests","%Development:U,%DB_USER:R,%DB_TESTNS:R,%DB_IRISSYS:R,%DB_IRISLIB:R,%DB_IRISTEMP:RW") if 'sc { do $system.Status.DisplayError(sc) }
+set sc=##class(Security.Users).Create("irisfs_ro","irisfs_ro_role","irisfs-ro-test","IRISFS read-only") if 'sc { do $system.Status.DisplayError(sc) }
+kill p set p("ChangePassword")=0,p("PasswordNeverExpires")=1 set sc=##class(Security.Users).Modify("irisfs_ro",.p)
+// ---- load seed code ----
+set $namespace="USER"
+set sc=$system.OBJ.ImportDir("/seed/USER","*.cls;*.mac;*.inc","ck-d",,1) if 'sc { do $system.Status.DisplayError(sc) }
+// Demo.Big: generated class > 1 MB
+set cd=##class(%Dictionary.ClassDefinition).%New() set cd.Name="Demo.Big" set cd.Description="Generated large class (>1MB) for IRISFS tests"
+set pad="" for k=1:1:60 { set pad=pad_" // padding line to make this class big ................"_$c(13,10) }
+for i=1:1:400 { set md=##class(%Dictionary.MethodDefinition).%New() set md.Name="M"_i set md.ClassMethod=1 set md.ReturnType="%Integer" do md.Implementation.Write(pad_"    quit "_i) do cd.Methods.Insert(md) }
+set sc=cd.%Save() if 'sc { do $system.Status.DisplayError(sc) }
+set sc=$system.OBJ.Compile("Demo.Big","ck-d") if 'sc { do $system.Status.DisplayError(sc) }
+// user lookup table (OTH document DemoTable.LUT)
+set ^Ens.LookupTable("DemoTable","it")="Italy",^Ens.LookupTable("DemoTable","fr")="France"
+set $namespace="TESTNS"
+set sc=$system.OBJ.ImportDir("/seed/TESTNS","*.cls;*.mac;*.inc","ck-d",,1) if 'sc { do $system.Status.DisplayError(sc) }
+write !,"SEED DONE",!
+halt
