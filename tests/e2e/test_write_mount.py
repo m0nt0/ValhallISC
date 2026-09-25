@@ -287,3 +287,18 @@ def test_e2e31_xxe_payload_makes_no_request(mnt: MountedFs, client: AtelierClien
         assert doc_names(client, "USER") == before
     finally:
         server.shutdown()
+
+
+@pytest.mark.skipif(platform.system() != "Darwin", reason="macOS Finder/xattr behaviour")
+def test_e2e28b_com_apple_xattrs_accepted(mnt: MountedFs, tmp_path: Path) -> None:
+    # Regression: with macFUSE's noapplexattr the kernel refused com.apple.* xattrs (EPERM) and Finder
+    # aborted copies with "you don't have permission". Finder sets quarantine/provenance/FinderInfo.
+    target = mnt.path / "USER" / "xattr-probe.xml"
+    target.touch()  # empty placeholder, like Finder's first step
+    try:
+        for name in ("com.apple.quarantine", "com.apple.FinderInfo", "com.apple.provenance"):
+            value = "0" * 64 if name == "com.apple.FinderInfo" else "x"
+            r = subprocess.run(["xattr", "-w", name, value, str(target)], capture_output=True, text=True)
+            assert r.returncode == 0, (name, r.stderr)
+    finally:
+        target.unlink(missing_ok=True)

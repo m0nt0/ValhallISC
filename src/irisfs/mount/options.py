@@ -31,7 +31,9 @@ def mount_options(
         if lib is not None and lib.kind.startswith("macFUSE"):
             # "local" makes Finder list the volume in the sidebar (non-local volumes are hidden there).
             # Spotlight is kept out by the virtual /.metadata_never_index file (see VirtualFS).
-            opts.update(noappledouble=True, noapplexattr=True, local=True)
+            # Not "noapplexattr": it makes the kernel refuse com.apple.* xattrs with EPERM, and Finder
+            # aborts copies with a permission error. VirtualFS accepts xattrs as no-ops instead.
+            opts.update(noappledouble=True, local=True)
     elif system == "Windows":
         # WinFsp-FUSE: map file ownership to the current user. [VERIFY on Windows]
         opts.update(uid=-1, gid=-1, FileSystemName="IRISFS", volname=profile_name[:32] or "IRIS")

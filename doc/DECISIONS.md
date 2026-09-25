@@ -62,3 +62,11 @@
 - **Rejected:**
   - `direct_io` with estimated sizes: it breaks tools that trust `st_size`.
   - Exporting several items in one request and splitting the result: it depends on IRIS's exact formatting of multi-item exports.
+
+## ADR-007: macOS copy-engine compatibility (Phase 6)
+- **Context:** Finder, `ditto` and editors don't write files the way `cp` does.
+- **Decisions:**
+  - **Empty placeholder:** an empty file closed after `create` is kept for 60 s and never imported. Finder creates the file, closes it, then reopens it to write.
+  - **Hidden temporary files:** names starting with `.` (other than `*.xml`) are in-memory scratch files. Renaming one to `*.xml` imports it; `ditto` and Finder use `.BC.T_*` then rename, and editors do atomic saves this way.
+  - **Ghost entry reopened for writing:** it becomes a new write buffer, so copying the same file in twice works.
+  - **macFUSE options:** `local` (sidebar), `noappledouble` (no `._` files), `volname` = the mount folder's name. **Not** `noapplexattr`: the kernel would refuse `com.apple.*` xattrs with EPERM, and Finder aborts copies with a permission error. xattrs are accepted as no-ops by `VirtualFS`.

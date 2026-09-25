@@ -302,7 +302,9 @@ def test_permission_denied_reported(fake: FakeAtelier) -> None:
     assert e.events[-1]["event"] == "import_failed" and "5883" in e.events[-1]["message"]
 
 
-def test_server_down_during_import_reported(env: Env, fake: FakeAtelier) -> None:
+def test_server_down_during_import_reported(fake: FakeAtelier) -> None:
+    # No prefetch: background exports would race for the injected failure (flaky on Linux).
+    env = Env(fake, prefetch_workers=0)
     env.fs.readdir("/USER")  # warm namespace cache so only the import call fails
     fake.fail_next.append(ConnectionFailed("down"))
     env.copy_in("/USER/x.xml", class_xml("Demo.X"))
@@ -499,3 +501,28 @@ def test_open_scratch_handle_survives_rename(env: Env) -> None:
     env.fs.write("/USER/.tmp4", b"abc", 0, fh)
     assert env.fs.read("/USER/.tmp4", 10, 0, fh) == b"abc"
     env.fs.release("/USER/.tmp4", fh)
+
+
+def test_finder_style_create_close_then_write(env: Env, fake: FakeAtelier) -> None:
+    # Regression (Finder error -36): Finder creates the file, closes it empty, then reopens to write.
+    path = "/USER/Demo.FinderHello.xml"
+    fh = env.fs.create(path, 0o644)
+    env.fs.flush(path, fh)  # an empty file must not fail flush
+    env.fs.release(path, fh)
+    assert fake.calls["import_xml"] == 0 and env.events == []
+    assert env.fs.getattr(path).size == 0  # still there for the second step
+    fh = env.fs.open(path, os.O_WRONLY)
+    env.fs.write(path, class_xml("Demo.FinderHello"), 0, fh)
+    env.fs.flush(path, fh)
+    env.fs.release(path, fh)
+    assert fake.calls["import_xml"] == 1 and env.events[-1]["items"] == ["Demo.FinderHello.cls"]
+
+
+def test_empty_placeholder_expires_and_can_be_deleted(env: Env, fake: FakeAtelier) -> None:
+    env.fs.release("/USER/e1.xml", env.fs.create("/USER/e1.xml", 0o644))
+    env.fs.release("/USER/e2.xml", env.fs.create("/USER/e2.xml", 0o644))
+    env.fs.unlink("/USER/e1.xml")  # e.g. Finder cancels the copy
+    assert "e1.xml" not in env.fs.readdir("/USER")
+    env.now[0] += GHOST_TTL + 1
+    assert "e2.xml" not in env.fs.readdir("/USER")
+    assert fake.calls["import_xml"] == 0

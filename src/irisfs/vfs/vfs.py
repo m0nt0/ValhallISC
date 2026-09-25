@@ -87,6 +87,7 @@ class WriteBuffer:
     data: bytearray
     dirty: bool = False
     refs: int = 0
+    expires: float | None = None  # set while an empty, closed file waits to be written (placeholder)
 
 
 @dataclass
@@ -235,6 +236,10 @@ class VirtualFS:
         now = self._clock()
         for p in [p for p, g in self._ghosts.items() if g.expires <= now]:
             del self._ghosts[p]
+        for p in [
+            p for p, b in self._buffers.items() if b.refs == 0 and b.expires is not None and b.expires <= now
+        ]:
+            del self._buffers[p]  # empty placeholder that was never written
 
     def _dir_attr(self) -> Attr:
         return Attr(True, 0, self.mounted_at, 0o555 if self.opts.read_only else 0o755)
@@ -318,6 +323,7 @@ class VirtualFS:
                     buf.data.clear()
                     buf.dirty = True
                 buf.refs += 1
+                buf.expires = None
                 return self._new_handle(Handle("write", path, buffer=buf))
             if path in self._ghosts:
                 if not writing:
@@ -446,8 +452,8 @@ class VirtualFS:
         if h.kind != "write" or h.buffer is None:
             return
         with self._lock:
-            if not h.buffer.dirty or h.buffer.refs > 1:
-                return
+            if not h.buffer.dirty or h.buffer.refs > 1 or not h.buffer.data:
+                return  # empty: the writer may still be coming back (see release)
             data = bytes(h.buffer.data)
         try:
             xmlexport.validate(data)
@@ -462,6 +468,11 @@ class VirtualFS:
             buf = h.buffer
             buf.refs -= 1
             if buf.refs > 0:
+                return
+            if buf.dirty and not buf.data:
+                # Finder creates the file, closes it empty, then reopens it to write the content.
+                # Keep an empty placeholder instead of importing (or dropping) it.
+                buf.expires = self._clock() + GHOST_TTL
                 return
             del self._buffers[buf.path]
             if not buf.dirty:
@@ -517,6 +528,10 @@ class VirtualFS:
     def unlink(self, path: str) -> None:
         with self._lock:
             if self._scratch.pop(path, None) is not None or self._ghosts.pop(path, None) is not None:
+                return
+            placeholder = self._buffers.get(path)
+            if placeholder is not None and placeholder.refs == 0:
+                del self._buffers[path]
                 return
         self._check_writable()
         self._resolve(path)  # ENOENT for unknown paths

@@ -10,7 +10,8 @@ def test_macos_volume_named_after_mount_folder_and_local() -> None:
         "Darwin", MACFUSE, profile_name="adhoc", read_only=False, mount_point="/Users/me/IRISFS-test/"
     )
     assert o["volname"] == "IRISFS-test"
-    assert o["local"] and o["noappledouble"] and o["noapplexattr"]
+    assert o["local"] and o["noappledouble"]
+    assert "noapplexattr" not in o  # regression: Finder copy failed with a permission error
     assert "ro" not in o
 
 
