@@ -70,3 +70,11 @@
   - **Hidden temporary files:** names starting with `.` (other than `*.xml`) are in-memory scratch files. Renaming one to `*.xml` imports it; `ditto` and Finder use `.BC.T_*` then rename, and editors do atomic saves this way.
   - **Ghost entry reopened for writing:** it becomes a new write buffer, so copying the same file in twice works.
   - **macFUSE options:** `local` (sidebar), `noappledouble` (no `._` files), `volname` = the mount folder's name. **Not** `noapplexattr`: the kernel would refuse `com.apple.*` xattrs with EPERM, and Finder aborts copies with a permission error. xattrs are accepted as no-ops by `VirtualFS`.
+
+## ADR-008: Windows (WinFsp) behaviour confirmed (first Windows run)
+- The [VERIFY] items for Windows are confirmed on Windows (64-bit) with WinFsp's FUSE 2.8 API:
+  - WinFsp is found through the registry: `HKLM\SOFTWARE\WinFsp\InstallDir`, then `bin\winfsp-{arch}.dll`.
+  - The mount options `uid=-1, gid=-1, FileSystemName=IRISFS, volname=…` work.
+  - A folder mount point must not exist when mounting. The controller creates only its parent.
+  - Stopping the worker by ending its process (`os._exit`) cleanly removes the mount.
+- Import by copying through Explorer works with the same `VirtualFS` code, so no Windows-specific write handling was needed.

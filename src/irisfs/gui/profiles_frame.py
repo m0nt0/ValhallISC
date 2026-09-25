@@ -328,8 +328,14 @@ class ProfilesFrame(wx.Frame):
             return
         self._show(self.controller.new_profile(), is_new=True)
         self.reload_list(self.current.id if self.current else None)
-        self.name.SetFocus()
-        self.name.SelectAll()
+        wx.CallAfter(self._focus_name)
+
+    def _focus_name(self) -> None:
+        # Deferred and guarded: on Windows, SetFocus on a window that is not (yet) shown logs
+        # "'SetFocus' failed with error 0x57".
+        if self and self.IsShown() and self.name.IsEnabled():
+            self.name.SetFocus()
+            self.name.SelectAll()
 
     def on_delete(self) -> None:
         if self.current is None:
