@@ -12,6 +12,7 @@ import os
 import platform
 import sys
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import IO, Any
@@ -22,7 +23,7 @@ from irisfs.config import mountpoint
 from irisfs.config.profile import Profile, ProfileValidationError
 from irisfs.mount import fuselib, protocol
 from irisfs.mount.options import mount_options
-from irisfs.mount.unmount import unmount
+from irisfs.mount.unmount import is_mounted, unmount
 from irisfs.vfs.vfs import Options, VirtualFS
 
 log = logging.getLogger(__name__)
@@ -112,10 +113,20 @@ class Worker:
 
         mounted = threading.Event()
 
-        def on_init() -> None:
-            mounted.set()
+        def announce() -> None:
+            # FUSE's init callback can run before the mount is visible to other processes (macOS), so
+            # report "mounted" only once the mount table shows it; readers then never hit the empty folder.
+            deadline = time.monotonic() + 15
+            while not is_mounted(self.mount_path) and time.monotonic() < deadline:
+                time.sleep(0.05)
+            if not is_mounted(self.mount_path):
+                log.warning("mount of %s not visible in the mount table after 15 s", self.mount_path)
             log.info("mounted %s at %s", p.name, self.mount_path)
             self.emit({"event": "mounted", "mountpoint": self.mount_path})
+
+        def on_init() -> None:
+            mounted.set()
+            threading.Thread(target=announce, name="announce", daemon=True).start()
 
         ops = make_operations(fuse, vfs, on_init=on_init)
         opts = self.fuse_options()

@@ -46,7 +46,9 @@ class RealProbe:
             return False
 
     def is_mount(self, path: str) -> bool:
-        return os.path.ismount(path)
+        from irisfs.mount.unmount import is_mounted  # mount table: safe on dead FUSE mounts
+
+        return is_mounted(path)
 
     def writable(self, path: str) -> bool:
         return os.access(path, os.W_OK | os.X_OK)
@@ -116,12 +118,13 @@ def validate(
 
     if not posixpath.isabs(raw):
         raise MountPointError(f"{raw} is not an absolute path")
+    # Mount table first: stat on a stale FUSE mount can block.
+    if probe.is_mount(raw):
+        raise MountPointError(f"{raw} is already a mount point (stale mount? try unmounting it)")
     if not probe.exists(raw):
         raise MountPointError(f"{raw} does not exist")
     if not probe.is_dir(raw):
         raise MountPointError(f"{raw} is not a directory")
-    if probe.is_mount(raw):
-        raise MountPointError(f"{raw} is already a mount point (stale mount? try unmounting it)")
     if not probe.is_empty_dir(raw):
         raise MountPointError(f"{raw} is not empty")
     if not probe.writable(raw):
