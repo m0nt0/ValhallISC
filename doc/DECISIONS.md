@@ -78,3 +78,19 @@
   - A folder mount point must not exist when mounting. The controller creates only its parent.
   - Stopping the worker by ending its process (`os._exit`) cleanly removes the mount.
 - Import by copying through Explorer works with the same `VirtualFS` code, so no Windows-specific write handling was needed.
+
+## ADR-009: Packaging (Phase 9)
+- **macOS:** only `ValhallISC.app`, onedir inside the bundle, with `LSUIElement` (no Dock icon) and the icon from the logo, zipped with `ditto`. The CLI is `dist/valhallisc`, a 400-byte shell wrapper that runs `ValhallISC.app/Contents/MacOS/ValhallISC` (next to it, or in `/Applications`).
+  - **Why not a onefile CLI:** a PyInstaller onefile binary extracts itself to a *new* temp folder on every launch, and macOS re-scans the extracted libraries. We measured `--version` at **10–103 s**, against 0.15–0.7 s for the bundle executable. The bundle executable also serves as the mount worker (`sys.executable worker`).
+  - **Name clash:** on case-insensitive APFS, `dist/ValhallISC` (the onedir folder) and `dist/valhallisc` are the same path. The onedir folder is now named `ValhallISC-onedir` and removed after bundling.
+  - The very first build took 53 minutes of mostly idle waiting while PyInstaller's binary cache filled. Later builds take about 2 minutes.
+- **Linux:** one onefile binary `valhallisc-linux-<arch>`, built in the `linux-test` image (Ubuntu 24.04 with the distro's wxPython; it needs `binutils` and `libpython3.12t64`).
+  - Runtime needs glibc 2.39 or newer (Ubuntu 24.04 / Debian 13+) and `fuse3`, plus GTK3 for the tray GUI; desktop distros have it. The CLI and worker run without GTK.
+  - The build host's architecture decides the binary's: aarch64 on Apple Silicon. For x86_64, build on an x86_64 Docker host, or with `docker buildx --platform linux/amd64` (slow, emulated).
+- **Windows:** `ValhallISC.exe` (onefile, windowed: tray app and worker) plus `valhallisc-cli.exe` (onefile, console: `doctor`, `mount`, …). The names differ because NTFS is case-insensitive too.
+  - **Watch items for the Windows test:**
+    - onefile startup time with Defender scanning (every mount spawns a worker);
+    - whether killing a onefile worker's bootloader also stops its Python child.
+
+    If either is a problem, switch Windows to onedir plus a zip.
+- **Windowed builds:** PyInstaller may set `sys.stdout`, `sys.stderr` and `sys.stdin` to `None`. Logging skips the stderr handler, and the worker works on file descriptors 0 and 1 directly.

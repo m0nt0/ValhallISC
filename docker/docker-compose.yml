@@ -44,3 +44,20 @@ services:
     depends_on:
       iris:
         condition: service_healthy
+
+  linux-clean:
+    build: ./linux-clean
+    image: irisfs-linux-clean:latest
+    profiles: ["test"]
+    init: true
+    devices:
+      - /dev/fuse
+    cap_add:
+      - SYS_ADMIN
+    security_opt:
+      - apparmor:unconfined
+    volumes:
+      - ..:/work
+    depends_on:
+      iris:
+        condition: service_healthy

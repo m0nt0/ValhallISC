@@ -7,6 +7,7 @@ The FUSE loop runs in the main thread because libfuse installs its own signal ha
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import platform
@@ -195,11 +196,19 @@ def _command_loop(worker: Worker, stream: IO[str]) -> None:
 def events_stream() -> IO[str]:
     """Reserve the real stdout for protocol events and point fd 1 at stderr, so anything libfuse or a
     library prints cannot corrupt the event stream."""
-    sys.stdout.flush()
+    # Work on file descriptors: in windowed frozen builds sys.stdout/sys.stderr can be None even though
+    # the parent gave us valid pipes.
+    if sys.stdout is not None:
+        sys.stdout.flush()
     events_fd = os.dup(1)
-    os.dup2(2, 1)
+    with contextlib.suppress(OSError):  # no usable stderr: leave fd 1 as is
+        os.dup2(2, 1)
     sys.stdout = sys.stderr
     return os.fdopen(events_fd, "w", encoding="utf-8", buffering=1)
+
+
+def commands_stream() -> IO[str]:
+    return sys.stdin if sys.stdin is not None else os.fdopen(0, "r", encoding="utf-8")
 
 
 def main() -> int:
@@ -207,7 +216,8 @@ def main() -> int:
 
     out = events_stream()
     emit = protocol.EventWriter(out)
-    first = sys.stdin.readline()
+    commands = commands_stream()
+    first = commands.readline()
     message = protocol.decode(first)
     try:
         if message is None:
@@ -218,5 +228,5 @@ def main() -> int:
         return EXIT_CONFIG
     logsetup.setup(f"worker-{config.profile.id[:8]}", verbose=bool(message.get("verbose")))
     worker = Worker(config, emit)
-    threading.Thread(target=_command_loop, args=(worker, sys.stdin), name="stdin", daemon=True).start()
+    threading.Thread(target=_command_loop, args=(worker, commands), name="stdin", daemon=True).start()
     return worker.run()

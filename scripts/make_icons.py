@@ -7,7 +7,7 @@ Outputs:
   src/irisfs/gui/icons/tray.png, tray@2x.png   black glyph + alpha (macOS template image; recolored
                                                at runtime on Linux/Windows). Inner valknut + ring only:
                                                the rune ring is unreadable at 22 px.
-  assets/app_icon_1024.png                     full logo on a white disc (for .icns / .ico)
+  assets/app_icon_1024.png, valhallisc.icns/.ico   full logo on a white disc (app/bundle/exe icons)
 """
 
 from pathlib import Path
@@ -50,6 +50,11 @@ def main() -> None:
     ImageDraw.Draw(app).ellipse((8, 8, w - 8, w - 8), fill=(255, 255, 255, 255))
     app.alpha_composite(glyph(alpha, (0, 0, 0)))
     app.save(ROOT / "assets" / "app_icon_1024.png")
+    app.save(ROOT / "assets" / "valhallisc.icns")  # macOS bundle icon
+    app.save(
+        ROOT / "assets" / "valhallisc.ico",
+        sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)],
+    )
     print("icons written")
 
 

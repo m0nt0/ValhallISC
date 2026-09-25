@@ -8,7 +8,7 @@ import sys
 from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING
 
-from irisfs import APP_NAME, CLI_NAME, __version__, log
+from irisfs import APP_NAME, CLI_NAME, GIT_SHA, __version__, log
 from irisfs.mount import fuselib
 
 if TYPE_CHECKING:
@@ -144,7 +144,8 @@ def cmd_profiles(args: argparse.Namespace) -> int:
 
 def build_parser() -> tuple[argparse.ArgumentParser, dict[str, Handler]]:
     parser = argparse.ArgumentParser(prog=CLI_NAME, description="Mount InterSystems IRIS code as files.")
-    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    version = f"%(prog)s {__version__}" + (f" ({GIT_SHA})" if GIT_SHA else "")
+    parser.add_argument("--version", action="version", version=version)
     parser.add_argument("-v", "--verbose", action="store_true", help="debug logging")
     sub = parser.add_subparsers(dest="command")
     handlers: dict[str, Handler] = {}

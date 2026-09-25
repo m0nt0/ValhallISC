@@ -32,7 +32,7 @@ def setup(name: str, *, verbose: bool = False, to_stderr: bool = True) -> Path:
     fh = logging.handlers.RotatingFileHandler(path, maxBytes=2_000_000, backupCount=3, encoding="utf-8")
     fh.setFormatter(logging.Formatter(_FORMAT))
     root.addHandler(fh)
-    if to_stderr:
+    if to_stderr and sys.stderr is not None:  # None in windowed (no console) frozen builds
         sh = logging.StreamHandler(sys.stderr)
         sh.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
         root.addHandler(sh)
