@@ -8,7 +8,7 @@ import sys
 from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING
 
-from irisfs import APP_NAME, __version__, log
+from irisfs import APP_NAME, CLI_NAME, __version__, log
 from irisfs.mount import fuselib
 
 if TYPE_CHECKING:
@@ -17,16 +17,11 @@ if TYPE_CHECKING:
 Handler = Callable[[argparse.Namespace], int]
 
 
-def _not_implemented(args: argparse.Namespace) -> int:
-    print(f"'{args.command}' is not implemented yet", file=sys.stderr)
-    return 2
-
-
 def cmd_doctor(args: argparse.Namespace) -> int:
     import platformdirs
 
     lines = [
-        f"irisfs {__version__}",
+        f"{APP_NAME} {__version__}",
         f"os: {platform.system()} {platform.release()} ({platform.machine()})",
         f"python: {sys.version.split()[0]} ({sys.executable}){' frozen' if fuselib.is_frozen() else ''}",
         f"config dir: {platformdirs.user_config_dir(APP_NAME, appauthor=False)}",
@@ -61,6 +56,15 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         lines.append("wxPython: not installed (GUI unavailable)")
     print("\n".join(lines))
     return 0 if ok else 1
+
+
+def cmd_gui(args: argparse.Namespace) -> int:
+    try:
+        from irisfs.gui.app import main as gui_main
+    except ImportError as e:
+        print(f"The GUI needs wxPython: {e}", file=sys.stderr)
+        return 2
+    return gui_main()
 
 
 def cmd_worker(args: argparse.Namespace) -> int:
@@ -139,14 +143,14 @@ def cmd_profiles(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> tuple[argparse.ArgumentParser, dict[str, Handler]]:
-    parser = argparse.ArgumentParser(prog=APP_NAME, description="Mount InterSystems IRIS code as files.")
+    parser = argparse.ArgumentParser(prog=CLI_NAME, description="Mount InterSystems IRIS code as files.")
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument("-v", "--verbose", action="store_true", help="debug logging")
     sub = parser.add_subparsers(dest="command")
     handlers: dict[str, Handler] = {}
 
     sub.add_parser("gui", help="start the tray application (default)")
-    handlers["gui"] = _not_implemented
+    handlers["gui"] = cmd_gui
 
     p = sub.add_parser("mount", help="mount a profile or an ad-hoc server in the foreground")
     p.add_argument("--profile", help="profile name")

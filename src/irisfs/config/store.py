@@ -34,7 +34,8 @@ class ProfileActiveError(RuntimeError):
 
 
 def default_config_dir() -> Path:
-    return Path(platformdirs.user_config_dir(APP_NAME, appauthor=False))
+    override = os.environ.get("VALHALLISC_CONFIG_DIR")  # tests / portable setups
+    return Path(override) if override else Path(platformdirs.user_config_dir(APP_NAME, appauthor=False))
 
 
 class ProfileStore:

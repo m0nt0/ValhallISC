@@ -17,7 +17,7 @@ run_suite() {
     unit)        pt tests/unit ;;
     integration) IRISFS_REQUIRE_IRIS=1 pt tests/integration ;;
     e2e)         IRISFS_REQUIRE_IRIS=1 IRISFS_REQUIRE_FUSE=1 pt -m "not perf" tests/e2e ;;
-    gui)         pt tests/gui ;;
+    gui)         IRISFS_REQUIRE_GUI=1 pt tests/gui ;;
     perf)        IRISFS_REQUIRE_IRIS=1 IRISFS_REQUIRE_FUSE=1 "$PY" -m pytest -q -s -m perf tests/e2e ;;
     all)         for s in lint unit integration e2e gui; do run_suite "$s"; done ;;
     *) echo "unknown suite: $1" >&2; exit 2 ;;

@@ -1,0 +1,319 @@
+"""AppController: tray and Profiles-window behaviour, without wx or real mounts."""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from irisfs.config.profile import Profile
+from irisfs.config.secrets import FileSecretStore
+from irisfs.config.store import ProfileStore
+from irisfs.gui.controller import AppController, ProfileItem
+from irisfs.mount import fuselib
+from irisfs.mount.manager import Change, MountError, State
+
+
+class FakePrompter:
+    def __init__(self) -> None:
+        self.answers: list[bool] = []  # consumed by confirm(); default True
+        self.log: list[tuple[str, str, str]] = []
+
+    def confirm(self, title: str, message: str, *, yes: str = "Yes", no: str = "No") -> bool:
+        self.log.append(("confirm", title, message))
+        return self.answers.pop(0) if self.answers else True
+
+    def error(self, title: str, message: str) -> None:
+        self.log.append(("error", title, message))
+
+    def info(self, title: str, message: str) -> None:
+        self.log.append(("info", title, message))
+
+    def notify(self, title: str, message: str) -> None:
+        self.log.append(("notify", title, message))
+
+    def kinds(self) -> list[str]:
+        return [k for k, _, _ in self.log]
+
+
+class FakeManager:
+    def __init__(self) -> None:
+        self.states: dict[str, State] = {}
+        self.calls: list[tuple[str, Any]] = []
+        self.subscribers: list[Callable[[Change], None]] = []
+        self.still_mounted: list[list[str]] = []  # results for successive unmount_all calls
+        self.mount_error: str | None = None
+
+    def subscribe(self, cb: Callable[[Change], None]) -> None:
+        self.subscribers.append(cb)
+
+    def state(self, pid: str) -> State:
+        return self.states.get(pid, State.INACTIVE)
+
+    def is_active(self, pid: str) -> bool:
+        return self.state(pid) is not State.INACTIVE
+
+    def mount(self, pid: str) -> None:
+        if self.mount_error:
+            raise MountError(self.mount_error)
+        self.calls.append(("mount", pid))
+        self.states[pid] = State.MOUNTING
+
+    def unmount(self, pid: str, *, force: bool = False) -> None:
+        self.calls.append(("unmount", (pid, force)))
+
+    def unmount_all(self, *, force: bool = False, wait: float | None = None) -> list[str]:
+        self.calls.append(("unmount_all", force))
+        return self.still_mounted.pop(0) if self.still_mounted else []
+
+    def publish(self, change: Change) -> None:
+        for cb in self.subscribers:
+            cb(change)
+
+
+class Env:
+    def __init__(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(fuselib, "find_library", lambda system=None: fuselib.FuseLibrary("libfuse3", "x"))
+        self.store = ProfileStore(
+            tmp_path / "p.json", secrets=FileSecretStore(tmp_path / "s.json"), system="Linux"
+        )
+        self.mgr = FakeManager()
+        self.store.is_active = self.mgr.is_active
+        self.prompter = FakePrompter()
+        self.exited = 0
+        self.refreshes = 0
+        self.tmp = tmp_path
+        self.ctl = AppController(
+            self.store,
+            self.mgr,  # type: ignore[arg-type]
+            self.prompter,
+            request_exit=self._exit,
+            call_ui=lambda task: task(),
+            run_bg=lambda task: task(),
+            system="Linux",
+        )
+        self.ctl.add_listener(self._refresh)
+
+    def _exit(self) -> None:
+        self.exited += 1
+
+    def _refresh(self) -> None:
+        self.refreshes += 1
+
+    def add(self, name: str = "Local", password: str | None = "pw") -> Profile:
+        p = Profile(name=name, host="localhost", username="_SYSTEM", mount_point=str(self.tmp / "mnt" / name))
+        return self.store.add(p, password=password)
+
+
+@pytest.fixture
+def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Env:
+    return Env(tmp_path, monkeypatch)
+
+
+# ---- menu model ------------------------------------------------------------------------------
+def test_profile_items_sorted_with_states(env: Env) -> None:
+    b = env.add("beta")
+    env.add("Alpha")
+    env.mgr.states[b.id] = State.ACTIVE
+    items = env.ctl.profile_items()
+    assert [i.name for i in items] == ["Alpha", "beta"]
+    assert items[1].active and not items[0].active
+
+
+@pytest.mark.parametrize(
+    ("state", "label", "enabled"),
+    [
+        (State.INACTIVE, "X", True),
+        (State.ACTIVE, "X", True),
+        (State.MOUNTING, "X (connecting…)", False),
+        (State.UNMOUNTING, "X (unmounting…)", False),
+    ],
+)
+def test_item_labels(state: State, label: str, enabled: bool) -> None:
+    item = ProfileItem("id", "X", state, "/m")
+    assert item.label == label and item.enabled is enabled
+
+
+# ---- clicking profiles -----------------------------------------------------------------------
+def test_click_inactive_mounts_and_creates_folder(env: Env) -> None:
+    p = env.add()
+    env.ctl.on_profile_clicked(p.id)
+    assert env.mgr.calls == [("mount", p.id)]
+    assert Path(p.mount_point).is_dir()
+    assert env.refreshes >= 1
+
+
+def test_click_active_confirm_yes_unmounts(env: Env) -> None:
+    p = env.add()
+    env.mgr.states[p.id] = State.ACTIVE
+    env.prompter.answers = [True]
+    env.ctl.on_profile_clicked(p.id)
+    assert env.mgr.calls == [("unmount", (p.id, False))]
+    assert "Unmount" in env.prompter.log[0][2]
+
+
+def test_click_active_confirm_no_does_nothing(env: Env) -> None:
+    p = env.add()
+    env.mgr.states[p.id] = State.ACTIVE
+    env.prompter.answers = [False]
+    env.ctl.on_profile_clicked(p.id)
+    assert env.mgr.calls == []
+
+
+def test_click_while_changing_state_is_ignored(env: Env) -> None:
+    p = env.add()
+    env.mgr.states[p.id] = State.MOUNTING
+    env.ctl.on_profile_clicked(p.id)
+    assert env.mgr.calls == [] and env.prompter.log == []
+
+
+def test_mount_error_is_shown(env: Env) -> None:
+    p = env.add()
+    env.mgr.mount_error = "overlaps the mount point of active profile 'x'"
+    env.ctl.on_profile_clicked(p.id)
+    assert env.prompter.kinds() == ["error"] and "overlaps" in env.prompter.log[0][2]
+
+
+def test_missing_password_is_explained(env: Env) -> None:
+    p = env.add(password=None)
+    env.ctl.on_profile_clicked(p.id)
+    assert env.mgr.calls == [] and "No password" in env.prompter.log[0][2]
+
+
+def test_missing_fuse_is_explained(env: Env, monkeypatch: pytest.MonkeyPatch) -> None:
+    p = env.add()
+    monkeypatch.setattr(fuselib, "find_library", lambda system=None: None)
+    env.ctl.on_profile_clicked(p.id)
+    assert env.mgr.calls == [] and "FUSE" in env.prompter.log[0][2]
+
+
+# ---- quit ------------------------------------------------------------------------------------
+def test_quit_no_active_confirm(env: Env) -> None:
+    env.prompter.answers = [True]
+    env.ctl.on_quit()
+    assert env.exited == 1 and env.mgr.calls == []
+
+
+def test_quit_cancelled(env: Env) -> None:
+    env.prompter.answers = [False]
+    env.ctl.on_quit()
+    assert env.exited == 0
+
+
+def test_quit_unmounts_all_then_exits(env: Env) -> None:
+    p = env.add()
+    env.mgr.states[p.id] = State.ACTIVE
+    env.prompter.answers = [True]
+    env.ctl.on_quit()
+    assert "Local" in env.prompter.log[0][2]  # lists what will be unmounted
+    assert env.mgr.calls == [("unmount_all", False)] and env.exited == 1
+
+
+def test_quit_busy_then_force(env: Env) -> None:
+    p = env.add()
+    env.mgr.states[p.id] = State.ACTIVE
+    env.mgr.still_mounted = [["Local"], []]
+    env.prompter.answers = [True, True]
+    env.ctl.on_quit()
+    assert env.mgr.calls == [("unmount_all", False), ("unmount_all", True)] and env.exited == 1
+
+
+def test_quit_busy_then_cancel_keeps_running(env: Env) -> None:
+    p = env.add()
+    env.mgr.states[p.id] = State.ACTIVE
+    env.mgr.still_mounted = [["Local"]]
+    env.prompter.answers = [True, False]
+    env.ctl.on_quit()
+    assert env.exited == 0 and not env.ctl.quitting
+
+
+# ---- manager events --------------------------------------------------------------------------
+def test_busy_event_offers_force(env: Env) -> None:
+    p = env.add()
+    env.prompter.answers = [True]
+    env.mgr.publish(Change(p.id, State.ACTIVE, {"event": "error", "code": "BUSY"}))
+    assert env.mgr.calls == [("unmount", (p.id, True))]
+
+
+def test_auth_error_shown_with_friendly_text(env: Env) -> None:
+    p = env.add()
+    env.mgr.publish(Change(p.id, State.MOUNTING, {"event": "error", "code": "AUTH_FAILED"}, "401"))
+    kind, title, message = env.prompter.log[0]
+    assert kind == "error" and "Local" in title and "user name or password" in message
+
+
+def test_import_notifications(env: Env) -> None:
+    p = env.add()
+    env.mgr.publish(
+        Change(p.id, State.ACTIVE, {"event": "imported", "items": ["A.cls"], "compile_errors": []})
+    )
+    env.mgr.publish(
+        Change(p.id, State.ACTIVE, {"event": "imported", "items": ["B.cls"], "compile_errors": ["E1"]})
+    )
+    env.mgr.publish(Change(p.id, State.ACTIVE, {"event": "import_failed", "file": "x.xml", "message": "bad"}))
+    titles = [t for k, t, _ in env.prompter.log if k == "notify"]
+    assert titles == ["Local: imported", "Local: imported with compile errors", "Local: import failed"]
+
+
+def test_worker_crash_reported(env: Env) -> None:
+    p = env.add()
+    env.mgr.publish(Change(p.id, State.INACTIVE, None, "The connection 'Local' stopped unexpectedly"))
+    assert env.prompter.kinds() == ["error"]
+
+
+def test_state_changes_refresh_ui(env: Env) -> None:
+    p = env.add()
+    before = env.refreshes
+    env.mgr.publish(Change(p.id, State.ACTIVE))
+    assert env.refreshes == before + 1
+
+
+# ---- profiles window -------------------------------------------------------------------------
+def test_new_profile_has_unique_name_and_default_folder(env: Env) -> None:
+    env.add("New server")
+    p = env.ctl.new_profile()
+    assert p.name == "New server 2" and p.mount_point.endswith("ValhallISC/New server 2")
+    assert not env.ctl.is_saved(p.id)
+
+
+def test_save_new_and_update(env: Env) -> None:
+    p = env.ctl.new_profile()
+    assert env.ctl.save_profile(p, "secret") == {}
+    assert env.store.password(p.id) == "secret"
+    p.port = 1972
+    assert env.ctl.save_profile(p, None) == {}
+    assert env.store.get(p.id).port == 1972 and env.store.password(p.id) == "secret"
+
+
+def test_save_invalid_returns_field_errors(env: Env) -> None:
+    p = env.ctl.new_profile()
+    p.host = ""
+    p.port = 0
+    assert set(env.ctl.save_profile(p, "x")) == {"host", "port"}
+    assert not env.ctl.is_saved(p.id)
+
+
+def test_save_active_refused(env: Env) -> None:
+    p = env.add()
+    env.mgr.states[p.id] = State.ACTIVE
+    assert "name" in env.ctl.save_profile(p, None)
+
+
+def test_delete_confirm_and_active_refused(env: Env) -> None:
+    p = env.add()
+    env.mgr.states[p.id] = State.ACTIVE
+    assert env.ctl.delete_profile(p.id) is False and env.prompter.kinds() == ["error"]
+    env.mgr.states[p.id] = State.INACTIVE
+    env.prompter.answers = [False]
+    assert env.ctl.delete_profile(p.id) is False and env.ctl.is_saved(p.id)
+    env.prompter.answers = [True]
+    assert env.ctl.delete_profile(p.id) is True and not env.ctl.is_saved(p.id)
+    assert env.store.password(p.id) is None
+
+
+def test_test_connection_unreachable(env: Env) -> None:
+    p = Profile(name="x", host="127.0.0.1", port=9, username="u", mount_point="/m")
+    ok, message = env.ctl.test_connection(p, "pw")
+    assert not ok and "connect" in message.lower()

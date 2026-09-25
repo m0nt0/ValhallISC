@@ -30,6 +30,6 @@ def test_parser_knows_all_commands() -> None:
 
 def test_doctor_runs_as_module() -> None:
     r = subprocess.run([sys.executable, "-m", "irisfs", "doctor"], capture_output=True, text=True, timeout=60)
-    assert "irisfs" in r.stdout
+    assert "ValhallISC" in r.stdout
     assert "fuse:" in r.stdout
     assert r.returncode in (0, 1), r.stderr

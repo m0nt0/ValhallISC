@@ -1,0 +1,57 @@
+"""Build ValhallISC icons from assets/valhallisc.jpg (run after changing the logo; outputs are committed).
+
+The JPEG has a *fake* (baked-in) checkerboard background, so transparency is derived from darkness:
+black lines -> opaque, the light checkerboard -> transparent.
+
+Outputs:
+  src/irisfs/gui/icons/tray.png, tray@2x.png   black glyph + alpha (macOS template image; recolored
+                                               at runtime on Linux/Windows). Inner valknut + ring only:
+                                               the rune ring is unreadable at 22 px.
+  assets/app_icon_1024.png                     full logo on a white disc (for .icns / .ico)
+"""
+
+from pathlib import Path
+
+from PIL import Image, ImageDraw, ImageFilter
+
+ROOT = Path(__file__).resolve().parent.parent
+SRC = ROOT / "assets" / "valhallisc.jpg"
+ICONS = ROOT / "src" / "irisfs" / "gui" / "icons"
+
+
+def alpha_from_darkness(gray: Image.Image) -> Image.Image:
+    return gray.point(lambda v: 0 if v >= 170 else (255 if v <= 90 else int((170 - v) * 255 / 80)))
+
+
+def glyph(alpha: Image.Image, color: tuple[int, int, int]) -> Image.Image:
+    img = Image.new("RGBA", alpha.size, (*color, 0))
+    img.putalpha(alpha)
+    return img
+
+
+def main() -> None:
+    gray = Image.open(SRC).convert("L")
+    w = gray.size[0]
+    alpha = alpha_from_darkness(gray)
+
+    # Tray: inner circle (valknut + inner ring), lines thickened so they survive downscaling.
+    c, r = w // 2, int(w * 0.33)
+    circle = Image.new("L", gray.size, 0)
+    ImageDraw.Draw(circle).ellipse((c - r, c - r, c + r, c + r), fill=255)
+    inner = Image.composite(alpha, Image.new("L", gray.size, 0), circle).filter(ImageFilter.MaxFilter(9))
+    inner = inner.crop((c - r, c - r, c + r, c + r))
+    ICONS.mkdir(parents=True, exist_ok=True)
+    for px, name in ((22, "tray.png"), (44, "tray@2x.png")):
+        small = inner.resize((px, px), Image.LANCZOS).point(lambda v: min(255, int(v * 1.5)))
+        glyph(small, (0, 0, 0)).save(ICONS / name)
+
+    # App icon: full logo, black on a white disc (reads well on light and dark backgrounds).
+    app = Image.new("RGBA", (w, w), (0, 0, 0, 0))
+    ImageDraw.Draw(app).ellipse((8, 8, w - 8, w - 8), fill=(255, 255, 255, 255))
+    app.alpha_composite(glyph(alpha, (0, 0, 0)))
+    app.save(ROOT / "assets" / "app_icon_1024.png")
+    print("icons written")
+
+
+if __name__ == "__main__":
+    main()

@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Protocol
 
 log = logging.getLogger(__name__)
-SERVICE = "irisfs"
+SERVICE = "ValhallISC"
 
 
 class SecretStore(Protocol):

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "irisfs"
 version = "0.1.0"
-description = "Mount InterSystems IRIS code (classes, routines, ...) as a local filesystem"
+description = "ValhallISC: mount InterSystems IRIS code (classes, routines, ...) as a local filesystem"
 requires-python = ">=3.12"
 dependencies = [
     "httpx>=0.28",
@@ -31,7 +31,7 @@ dev = [
 build = ["pyinstaller>=6"]
 
 [project.scripts]
-irisfs = "irisfs.__main__:main"
+valhallisc = "irisfs.__main__:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -52,7 +52,7 @@ select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
 python_version = "3.12"
 strict = true
 files = ["src/irisfs"]
-exclude = ["src/irisfs/gui/"]
+exclude = ["src/irisfs/gui/(app|tray|profiles_frame|wxprompter|icons)\\.py"]
 
 [[tool.mypy.overrides]]
 module = ["mfusepy", "keyring.*", "wx.*", "AppKit", "defusedxml.*"]
