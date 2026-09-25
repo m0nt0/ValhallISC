@@ -29,6 +29,7 @@ services:
     build: ./linux-test
     image: irisfs-linux-test:latest
     profiles: ["test"]
+    init: true  # xvfb-run as PID 1 never receives the Xvfb ready signal
     devices:
       - /dev/fuse
     cap_add:
