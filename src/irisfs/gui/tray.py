@@ -29,19 +29,40 @@ def click_mode() -> str:
     return "combined" if sys.platform == "darwin" else "split"
 
 
-def append_profiles(menu: wx.Menu, items: list[ProfileItem]) -> dict[int, str]:
-    """Add one check item per profile (checked = mounted). Returns {menu id: profile id}."""
-    ids: dict[int, str] = {}
+# menu id -> (action, profile id); action: "toggle" (mount, or unmount a mounted one), "open", "unmount"
+MenuActions = dict[int, tuple[str, str]]
+
+
+def append_profiles(menu: wx.Menu, items: list[ProfileItem], summary: str) -> MenuActions:
+    """Header, then one entry per profile (design review): a mounted profile is a submenu with Open folder /
+    Unmount (native menus cannot hold buttons); a changing one is disabled with its state word; an idle one
+    mounts when clicked."""
+    actions: MenuActions = {}
+    header = menu.Append(wx.ID_ANY, f"{APP_NAME} — {summary}")
+    header.Enable(False)
+    menu.AppendSeparator()
     if not items:
         empty = menu.Append(wx.ID_ANY, "No servers yet — open Profiles…")
         empty.Enable(False)
-        return ids
+        return actions
     for item in items:
-        mi = menu.AppendCheckItem(wx.ID_ANY, item.label)
-        mi.Check(item.state.value == "active")
-        mi.Enable(item.enabled)
-        ids[mi.GetId()] = item.id
-    return ids
+        if item.mounted:
+            sub = wx.Menu()
+            where = sub.Append(wx.ID_ANY, item.subtitle)
+            where.Enable(False)
+            sub.AppendSeparator()
+            open_item = sub.Append(wx.ID_ANY, "Open folder")
+            unmount_item = sub.Append(wx.ID_ANY, "Unmount…")
+            actions[open_item.GetId()] = ("open", item.id)
+            actions[unmount_item.GetId()] = ("unmount", item.id)
+            menu.AppendSubMenu(sub, f"{item.name} — {item.status}")
+        elif item.active:  # connecting / unmounting
+            busy = menu.Append(wx.ID_ANY, f"{item.name} — {item.status}")
+            busy.Enable(False)
+        else:
+            mi = menu.Append(wx.ID_ANY, item.name, helpString=f"Mount {item.name} at {item.mount_point}")
+            actions[mi.GetId()] = ("toggle", item.id)
+    return actions
 
 
 def append_actions(menu: wx.Menu) -> None:
@@ -49,17 +70,17 @@ def append_actions(menu: wx.Menu) -> None:
     menu.Append(ID_QUIT, f"Quit {APP_NAME}")
 
 
-def build_menu(items: list[ProfileItem], kind: str) -> tuple[wx.Menu, dict[int, str]]:
+def build_menu(items: list[ProfileItem], kind: str, summary: str = "") -> tuple[wx.Menu, MenuActions]:
     """kind: 'combined' | 'profiles' | 'actions'."""
     menu = wx.Menu()
-    ids: dict[int, str] = {}
+    actions: MenuActions = {}
     if kind in ("combined", "profiles"):
-        ids = append_profiles(menu, items)
+        actions = append_profiles(menu, items, summary)
     if kind == "combined":
         menu.AppendSeparator()
     if kind in ("combined", "actions"):
         append_actions(menu)
-    return menu, ids
+    return menu, actions
 
 
 class TrayIcon(wx.adv.TaskBarIcon):
@@ -68,7 +89,7 @@ class TrayIcon(wx.adv.TaskBarIcon):
         self.controller = controller
         self.open_profiles = open_profiles
         self.mode = click_mode()
-        self._menu_ids: dict[int, str] = {}
+        self._menu_ids: MenuActions = {}
         log.info("tray click mode: %s", self.mode)
         self.Bind(wx.EVT_MENU, self._on_menu)
         if self.mode == "split":
@@ -87,11 +108,13 @@ class TrayIcon(wx.adv.TaskBarIcon):
     # right click (split) or any click (combined)
     def CreatePopupMenu(self) -> wx.Menu:
         kind = "combined" if self.mode == "combined" else "actions"
-        menu, self._menu_ids = build_menu(self.controller.profile_items(), kind)
+        menu, self._menu_ids = build_menu(self.controller.profile_items(), kind, self.controller.summary())
         return menu
 
     def _on_left_click(self, _event: wx.Event) -> None:
-        menu, self._menu_ids = build_menu(self.controller.profile_items(), "profiles")
+        menu, self._menu_ids = build_menu(
+            self.controller.profile_items(), "profiles", self.controller.summary()
+        )
         self.PopupMenu(menu)
         menu.Destroy()
 
@@ -102,5 +125,8 @@ class TrayIcon(wx.adv.TaskBarIcon):
         elif menu_id == ID_PROFILES:
             wx.CallAfter(self.open_profiles)
         elif menu_id in self._menu_ids:
-            profile_id = self._menu_ids[menu_id]
-            wx.CallAfter(self.controller.on_profile_clicked, profile_id)
+            action, profile_id = self._menu_ids[menu_id]
+            if action == "open":
+                wx.CallAfter(self.controller.open_folder, profile_id)
+            else:  # "toggle" mounts an idle profile; "unmount" asks for confirmation first
+                wx.CallAfter(self.controller.on_profile_clicked, profile_id)

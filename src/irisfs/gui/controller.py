@@ -7,7 +7,10 @@ come back through `call_ui` (wx.CallAfter in the app, immediate calls in tests).
 from __future__ import annotations
 
 import logging
+import os
 import platform
+import subprocess
+import sys
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -45,10 +48,38 @@ class ProfileItem:
     state: State
     mount_point: str
     external: bool = False  # mounted by `valhallisc connect`, not by this app
+    host: str = ""
+    port: int = 0
+    read_only: bool = False
 
     @property
     def active(self) -> bool:
         return self.state is not State.INACTIVE
+
+    @property
+    def mounted(self) -> bool:
+        return self.state is State.ACTIVE
+
+    @property
+    def status(self) -> str:
+        """Short state word(s) used in the menu (design review: words instead of a bare ✓)."""
+        if self.state is State.MOUNTING:
+            return "Connecting…"
+        if self.state is State.UNMOUNTING:
+            return "Unmounting…"
+        if self.state is State.ACTIVE:
+            return "Connected from CLI" if self.external else "Mounted"
+        return ""
+
+    @property
+    def subtitle(self) -> str:
+        """Second line of a list row: where it is mounted, or which server it points at."""
+        if self.state is State.ACTIVE:
+            extra = " · read-only" if self.read_only else ""
+            return f"{self.status} · {short_path(self.mount_point)}{extra}"
+        if self.state in (State.MOUNTING, State.UNMOUNTING):
+            return self.status
+        return f"{self.host}:{self.port} · not mounted" if self.host else "not mounted"
 
     @property
     def label(self) -> str:
@@ -63,6 +94,21 @@ class ProfileItem:
     @property
     def enabled(self) -> bool:
         return self.state in (State.ACTIVE, State.INACTIVE)
+
+
+def short_path(path: str) -> str:
+    home = str(Path.home())
+    return "~" + path[len(home) :] if path == home or path.startswith(home + os.sep) else path
+
+
+def open_in_file_manager(path: str) -> None:
+    """Finder / Explorer / the desktop's file manager."""
+    if sys.platform == "darwin":
+        subprocess.Popen(["open", path])
+    elif sys.platform == "win32":
+        os.startfile(path)  # type: ignore[attr-defined,unused-ignore]
+    else:
+        subprocess.Popen(["xdg-open", path])
 
 
 def _thread(task: Task) -> None:
@@ -91,6 +137,7 @@ class AppController:
         self.system = system or platform.system()
         self.quit_wait = quit_wait
         self._listeners: list[Task] = []
+        self._opener: Callable[[str], None] | None = None  # tests replace the file-manager launcher
         self.quitting = False
         manager.subscribe(lambda change: self.call_ui(lambda: self.handle_change(change)))
 
@@ -112,13 +159,32 @@ class AppController:
     def profile_items(self) -> list[ProfileItem]:
         items = [
             ProfileItem(
-                p.id, p.name, self.manager.state(p.id), p.mount_point, self.manager.external(p.id) is not None
+                p.id,
+                p.name,
+                self.manager.state(p.id),
+                p.mount_point,
+                self.manager.external(p.id) is not None,
+                p.host,
+                p.port,
+                p.read_only,
             )
             for p in self.store.profiles()
         ]
         return sorted(items, key=lambda i: i.name.casefold())
 
+    def summary(self) -> str:
+        items = self.profile_items()
+        mounted = sum(1 for i in items if i.mounted)
+        return f"{mounted} of {len(items)} mounted" if items else "no servers yet"
+
     # ---- tray actions ------------------------------------------------------------------------
+    def open_folder(self, profile_id: str) -> None:
+        profile = self.store.get(profile_id)
+        try:
+            (self._opener or open_in_file_manager)(profile.mount_point)
+        except OSError as e:
+            self.prompter.error(APP_NAME, f"Cannot open {profile.mount_point}: {e}")
+
     def on_profile_clicked(self, profile_id: str) -> None:
         state = self.manager.state(profile_id)
         profile = self.store.get(profile_id)

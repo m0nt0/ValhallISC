@@ -84,9 +84,9 @@ def main(out: Path) -> None:
     print("  form enabled:", frame.name.IsEnabled(), "save enabled:", frame.btn_save.IsEnabled())
     grab(frame, out / "profiles-edit.png")
 
-    frame.advanced.Expand()
-    frame.form.Layout()
-    grab(frame, out / "profiles-advanced.png")
+    frame.tabs.SetSelection(1)
+    grab(frame, out / "profiles-options.png")
+    frame.tabs.SetSelection(0)
 
     frame.reload_list(prod.id)
     grab(frame, out / "profiles-mounted-readonly.png")

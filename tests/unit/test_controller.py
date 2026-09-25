@@ -335,3 +335,51 @@ def test_prepare_folder_per_platform(env: Env, system: str) -> None:
 def test_prepare_folder_drive_letter_is_noop(env: Env) -> None:
     env.ctl.system = "Windows"
     env.ctl._prepare_folder("X:")
+
+
+# ---- design review 1: row subtitles, summary, open folder --------------------------------------
+@pytest.mark.parametrize(
+    ("state", "external", "read_only", "expected"),
+    [
+        (State.INACTIVE, False, False, "iris:52773 · not mounted"),
+        (State.MOUNTING, False, False, "Connecting…"),
+        (State.UNMOUNTING, False, False, "Unmounting…"),
+        (State.ACTIVE, False, True, "Mounted · /m · read-only"),
+        (State.ACTIVE, True, False, "Connected from CLI · /m"),
+    ],
+)
+def test_item_subtitle(state: State, external: bool, read_only: bool, expected: str) -> None:
+    item = ProfileItem("id", "X", state, "/m", external, "iris", 52773, read_only)
+    assert item.subtitle == expected
+
+
+def test_home_is_shortened() -> None:
+    from pathlib import Path as P
+
+    from irisfs.gui.controller import short_path
+
+    assert short_path(str(P.home() / "ValhallISC" / "Dev")).startswith("~")
+    assert short_path("/mnt/x") == "/mnt/x"
+
+
+def test_summary(env: Env) -> None:
+    assert env.ctl.summary() == "no servers yet"
+    a = env.add("A")
+    env.add("B")
+    env.mgr.states[a.id] = State.ACTIVE
+    assert env.ctl.summary() == "1 of 2 mounted"
+
+
+def test_open_folder(env: Env) -> None:
+    p = env.add()
+    opened: list[str] = []
+    env.ctl._opener = opened.append
+    env.ctl.open_folder(p.id)
+    assert opened == [p.mount_point]
+
+    def fail(path: str) -> None:
+        raise OSError("no file manager")
+
+    env.ctl._opener = fail
+    env.ctl.open_folder(p.id)
+    assert env.prompter.kinds()[-1] == "error"
