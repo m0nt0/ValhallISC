@@ -94,3 +94,13 @@
 
     If either is a problem, switch Windows to onedir plus a zip.
 - **Windowed builds:** PyInstaller may set `sys.stdout`, `sys.stderr` and `sys.stdin` to `None`. Logging skips the stderr handler, and the worker works on file descriptors 0 and 1 directly.
+
+## ADR-010: UI after design review 1 (deviations from the original spec)
+- **Context:** a design review in Claude Design (`doc/progress/design-review-1.md`) found layout bugs and usability gaps. The user approved the proposed redesign.
+- **Decisions and deviations from `doc/idea`:**
+  - **"+" and trash buttons:** the spec placed them "on the top". They now sit **under the profile list** (the macOS convention for list editing), drawn as our own SVG glyphs so they look the same on every platform.
+  - **Clicking an active server:** the spec says clicking it asks to unmount. In the menu a mounted server is now a **submenu** (its location, Open folder, Unmount…), because native menus can't hold buttons. **Unmount… still asks for confirmation**, as the spec requires. Clicking an idle server still mounts it directly.
+  - **Active marker:** state words ("Mounted", "Connecting…", "Connected from CLI") replace the bare ✓. A header line shows "N of M mounted".
+  - **Profile form:** a Connection tab (Server / Sign in / Mount) and an Options tab (URL prefix, system items, compile). Errors appear under their field, and the test result is shown inline. The fields scroll above a fixed footer, because growing the window proved unreliable with GTK's asynchronous resizes.
+  - **Read-only form while mounted (spec):** kept, now with a banner offering Open folder and Unmount….
+- The macOS combined menu (ADR-005) and the Windows/Linux left/right split are unchanged.

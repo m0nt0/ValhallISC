@@ -1,17 +1,48 @@
-.venv/
+# --- Python ---------------------------------------------------------------------------------------
 __pycache__/
-*.pyc
+*.py[cod]
+*.egg-info/
+.eggs/
+.venv/
+venv/
+.python-version
+
+# --- tooling caches / reports ---------------------------------------------------------------------
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.hypothesis/
 .coverage
+.coverage.*
+coverage.xml
 htmlcov/
+
+# --- build and packaging (PyInstaller) ------------------------------------------------------------
 build/
 dist/
-*.egg-info/
+*.spec.bak
+src/irisfs/_build.py            # git revision, written by scripts/build-*.sh
+
+# --- spikes / local scratch -----------------------------------------------------------------------
 spikes/*.log
 spikes/*.err
+*.log
+
+# --- editors / OS ---------------------------------------------------------------------------------
+.idea/
+.vscode/
+*.swp
+*~
 .DS_Store
+._*
+Thumbs.db
+desktop.ini
+
+# --- local screenshots dropped in the project folder ----------------------------------------------
 Monosnap*.png
-src/irisfs/_build.py
-*.spec.bak
+
+# --- secrets never belong in git (the test IRIS password in docker/.env.test is test-only) ---------
+*.pem
+*.key
+.env
+.env.local

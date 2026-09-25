@@ -1,4 +1,10 @@
-# IRISFS: implementation plan
+# IRISFS (ValhallISC): implementation plan
+
+> **Status (2026-09-25):** implemented. The product is named **ValhallISC**; the Python package keeps the working title `irisfs`. Gates G0–G7, G9 and G11 have passed on macOS and Linux. Two items still need the user:
+> - the manual macOS checklist of G8 (`doc/progress/G8-manual.md`);
+> - the Windows validation of G10 (the tray app works on Windows from source; the packaged `.exe` is not yet validated).
+>
+> Where the implementation deviates from this plan, the reason is in `doc/DECISIONS.md` (ADR-001 … ADR-010) and in the gate reports under `doc/progress/`. For users, see `README.md`, `doc/USAGE.md` and `doc/CLI.md`.
 
 > **Audience:** an AI coding agent (or a developer) who will build the program described in `doc/idea`.
 > **Goal:** a tray application (Python + wxPython) that mounts one or more InterSystems IRIS servers as local folders. You can then browse classes, routines and other code items as ordinary files: copy them out as XML exports, and copy XML files in to import them.
@@ -769,17 +775,17 @@ Clean up after every test: delete the created items and restore the modified see
 
 ## 7. Summary checklist of gates
 
-| Gate | Proves | Where |
-|---|---|---|
-| G0 | IRIS container, XML export and import, FUSE, tray behaviour all feasible | macOS + Linux Docker |
-| G1 | Tooling, CI scripts, `doctor` | macOS + Linux |
-| G2 | Profiles and secrets | macOS + Linux |
-| G3 | Atelier client (contract-tested against the fake) | macOS + Linux + IRIS |
-| G4 | VirtualFS logic | macOS + Linux + IRIS |
-| G5 | Read-only mount end-to-end, performance | macOS + Linux + IRIS + FUSE |
-| G6 | Import by copying end-to-end | macOS + Linux + IRIS + FUSE |
-| G7 | Multi-mount orchestration, crash and busy handling | macOS + Linux |
-| G8 | Tray and Profiles GUI | Linux (Xvfb) + macOS manual |
-| G9 | Packaged binaries | macOS `.app` + CLI, Linux onefile |
-| G10 | Windows | the user |
-| G11 | Headless CLI (`--batch`, profiles, connect and disconnect, shared mount registry) | macOS + Linux |
+| Gate | Proves | Where | Status (report) |
+|---|---|---|---|
+| G0 | IRIS container, XML export and import, FUSE, tray behaviour all feasible | macOS + Linux Docker | passed (`G0.md`) |
+| G1 | Tooling, CI scripts, `doctor` | macOS + Linux | passed (`G1.md`) |
+| G2 | Profiles and secrets | macOS + Linux | passed (`G2.md`) |
+| G3 | Atelier client (contract-tested against the fake) | macOS + Linux + IRIS | passed (`G3.md`) |
+| G4 | VirtualFS logic | macOS + Linux + IRIS | passed (`G4.md`) |
+| G5 | Read-only mount end-to-end, performance | macOS + Linux + IRIS + FUSE | passed, including the manual Finder check (`G5.md`) |
+| G6 | Import by copying end-to-end | macOS + Linux + IRIS + FUSE | passed, including the manual Finder drag-in (`G6.md`) |
+| G7 | Multi-mount orchestration, crash and busy handling | macOS + Linux | passed (`G7.md`) |
+| G8 | Tray and Profiles GUI | Linux (Xvfb) + macOS manual | automated part passed; macOS manual checklist not yet reported (`G8-manual.md`); reworked after design review 1 (`design-review-1.md`) |
+| G9 | Packaged binaries | macOS `.app` + CLI, Linux onefile | passed for macOS and Linux (`G9.md`) |
+| G10 | Windows | the user | from source: mount, import and GUI verified (`G10-windows-first-run.md`); packaged `.exe` pending |
+| G11 | Headless CLI (`--batch`, profiles, connect and disconnect, shared mount registry) | macOS + Linux | passed (`G11.md`) |
