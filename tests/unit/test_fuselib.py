@@ -61,3 +61,26 @@ def test_linux_prefers_fuse3(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(fuselib.ctypes.util, "find_library", lambda n: f"lib{n}.so")
     found = fuselib.find_library("Linux")
     assert found is not None and found.kind == "libfuse3"
+
+
+@pytest.mark.parametrize(
+    ("path", "system", "kind"),
+    [
+        ("/usr/local/lib/libfuse-t.dylib", "Darwin", "FUSE-T"),
+        ("/opt/local/lib/libfuse.2.dylib", "Darwin", "macFUSE"),
+        ("/usr/local/lib/libfuse.2.dylib", "Darwin", "macFUSE"),
+        ("libfuse3.so.3", "Linux", "libfuse3"),
+        ("libfuse.so.2", "Linux", "libfuse2"),
+        ("C:/Program Files (x86)/WinFsp/bin/winfsp-x64.dll", "Windows", "WinFsp"),
+    ],
+)
+def test_classify(path: str, system: str, kind: str) -> None:
+    assert fuselib.classify(path, system) == kind
+
+
+def test_kind_survives_env_set_by_ensure_loaded(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Regression: ensure_loaded() sets FUSE_LIBRARY_PATH; the kind must still be macFUSE so that
+    # macFUSE-only mount options (local, noappledouble) are applied.
+    monkeypatch.setenv("FUSE_LIBRARY_PATH", "/opt/local/lib/libfuse.2.dylib")
+    found = fuselib.find_library("Darwin")
+    assert found is not None and found.kind.startswith("macFUSE")

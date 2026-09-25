@@ -434,3 +434,10 @@ def test_prefetch_can_be_disabled(fake: FakeAtelier) -> None:
     e = Env(fake, prefetch_workers=0)
     e.fs.readdir("/TESTNS/Many")
     assert fake.calls["export_xml"] == 0
+
+
+def test_spotlight_marker(fake: FakeAtelier) -> None:
+    e = Env(fake, no_index_marker=True)
+    assert ".metadata_never_index" in e.fs.readdir("/")
+    assert e.fs.getattr("/.metadata_never_index").size == 0
+    assert ".metadata_never_index" not in Env(fake).fs.readdir("/")

@@ -104,6 +104,7 @@ class Worker:
                 compile_flags=p.compile_flags,
                 tree_ttl=self.config.tree_ttl,
                 case_insensitive=self.system in ("Darwin", "Windows"),
+                no_index_marker=self.system == "Darwin",
             ),
             on_event=self.emit,
         )
@@ -117,9 +118,7 @@ class Worker:
             self.emit({"event": "mounted", "mountpoint": self.mount_path})
 
         ops = make_operations(fuse, vfs, on_init=on_init)
-        opts = mount_options(
-            self.system, fuselib.find_library(self.system), profile_name=p.name, read_only=p.read_only
-        )
+        opts = self.fuse_options()
         code = EXIT_OK
         try:
             fuse.FUSE(ops, self.mount_path, **opts)
@@ -136,6 +135,16 @@ class Worker:
             log.info("unmounted %s", self.mount_path)
             self.emit({"event": "unmounted", "mountpoint": self.mount_path})
         return code
+
+    def fuse_options(self) -> dict[str, Any]:
+        p = self.config.profile
+        return mount_options(
+            self.system,
+            fuselib.find_library(self.system),
+            profile_name=p.name,
+            read_only=p.read_only,
+            mount_point=self.mount_path,
+        )
 
     def stop(self, *, force: bool = False) -> None:
         """Called from the stdin thread. Unmounting makes the FUSE loop in the main thread return."""

@@ -61,13 +61,27 @@ def _windows_winfsp() -> str | None:
     return None
 
 
+def classify(path: str, system: str) -> str:
+    """Library kind from its file name (used when the path comes from FUSE_LIBRARY_PATH)."""
+    name = os.path.basename(path).lower()
+    if "fuse-t" in name:
+        return "FUSE-T"
+    if "winfsp" in name:
+        return "WinFsp"
+    if system == "Darwin":
+        return "macFUSE"
+    return "libfuse3" if "fuse3" in name else "libfuse2"
+
+
 def find_library(system: str | None = None) -> FuseLibrary | None:
     """Return the FUSE library to use, or None. Honours an explicit FUSE_LIBRARY_PATH."""
     system = system or platform.system()
     explicit = os.environ.get("FUSE_LIBRARY_PATH")
     if explicit:
+        # ensure_loaded() sets this variable itself, so still report the real kind: mount options
+        # depend on it (macFUSE-only options must not be lost once the library is loaded).
         return FuseLibrary(
-            "FUSE_LIBRARY_PATH", explicit, None if Path(explicit).exists() else "file not found"
+            classify(explicit, system), explicit, None if Path(explicit).exists() else "file not found"
         )
     if system == "Darwin":
         for kind, path in MACOS_CANDIDATES:

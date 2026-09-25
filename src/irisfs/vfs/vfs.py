@@ -59,6 +59,7 @@ class Options:
     case_insensitive: bool = False
     namespaces_ttl: float = 30.0
     prefetch_workers: int = 4  # background exports started by readdir (0 disables)
+    no_index_marker: bool = False  # macOS: expose /.metadata_never_index so Spotlight skips the volume
 
     @property
     def load_flags(self) -> str:
@@ -159,6 +160,8 @@ class VirtualFS:
         self._buffers: dict[str, WriteBuffer] = {}  # path -> buffer being written
         self._scratch: dict[str, _Scratch] = {}  # junk files (never sent to IRIS)
         self._ghosts: dict[str, Ghost] = {}
+        if self.opts.no_index_marker:
+            self._scratch["/.metadata_never_index"] = _Scratch()
         self._prefetch = (
             ThreadPoolExecutor(self.opts.prefetch_workers, thread_name_prefix="prefetch")
             if self.opts.prefetch_workers > 0
