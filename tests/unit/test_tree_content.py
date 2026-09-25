@@ -1,3 +1,4 @@
+import contextlib
 import threading
 import time
 
@@ -89,3 +90,15 @@ def test_oversized_item_not_cached() -> None:
     cache = ContentCache(max_bytes=5)
     assert cache.get(("U", "A.cls", "t"), lambda: b"x" * 10) == b"x" * 10
     assert cache.total_bytes == 0
+
+
+def test_failed_load_is_not_left_in_flight() -> None:
+    cache = ContentCache()
+
+    def boom() -> bytes:
+        raise RuntimeError("export failed")
+
+    with contextlib.suppress(RuntimeError):
+        cache.get(("U", "A.cls", "t"), boom)
+    assert not cache.has_size(("U", "A.cls", "t"))
+    assert cache.get(("U", "A.cls", "t"), lambda: b"ok") == b"ok"

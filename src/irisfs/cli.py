@@ -6,9 +6,13 @@ import argparse
 import platform
 import sys
 from collections.abc import Callable, Sequence
+from typing import TYPE_CHECKING
 
 from irisfs import APP_NAME, __version__, log
 from irisfs.mount import fuselib
+
+if TYPE_CHECKING:
+    from irisfs.config.store import ProfileStore
 
 Handler = Callable[[argparse.Namespace], int]
 
@@ -59,6 +63,81 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     return 0 if ok else 1
 
 
+def cmd_worker(args: argparse.Namespace) -> int:
+    from irisfs.mount import worker
+
+    return worker.main()
+
+
+def _store() -> ProfileStore:
+    from irisfs.config import secrets
+    from irisfs.config.store import ProfileStore, default_config_dir
+
+    config_dir = default_config_dir()
+    return ProfileStore(config_dir / "profiles.json", secrets=secrets.default_store(config_dir))
+
+
+def cmd_mount(args: argparse.Namespace) -> int:
+    import json
+
+    from irisfs.config.profile import Profile
+    from irisfs.mount.worker import Worker, WorkerConfig
+
+    log.setup("mount", verbose=args.verbose)
+    if args.profile:
+        store = _store()
+        found = store.find_by_name(args.profile)
+        if found is None:
+            print(f"no profile named {args.profile!r}", file=sys.stderr)
+            return 2
+        profile = found
+        if args.mountpoint:
+            profile.mount_point = args.mountpoint
+        if args.read_only:
+            profile.read_only = True
+        password = (
+            sys.stdin.readline().rstrip("\n") if args.password_stdin else (store.password(profile.id) or "")
+        )
+    else:
+        if not (args.host and args.user and args.mountpoint):
+            print("either --profile or --host, --user and --mountpoint are required", file=sys.stderr)
+            return 2
+        profile = Profile(
+            name="adhoc",
+            host=args.host,
+            port=args.port,
+            username=args.user,
+            mount_point=args.mountpoint,
+            read_only=args.read_only,
+        )
+        password = sys.stdin.readline().rstrip("\n") if args.password_stdin else ""
+
+    def emit(event: dict[str, object]) -> None:
+        print(json.dumps(event, ensure_ascii=False), flush=True)
+
+    return Worker(WorkerConfig(profile=profile, password=password), emit).run()
+
+
+def cmd_unmount(args: argparse.Namespace) -> int:
+    from irisfs.mount.unmount import unmount
+
+    result = unmount(args.path, platform.system(), force=args.force)
+    if not result.ok:
+        print(f"unmount failed: {result.message}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def cmd_profiles(args: argparse.Namespace) -> int:
+    store = _store()
+    if store.load_warning:
+        print(f"warning: {store.load_warning}", file=sys.stderr)
+    for p in store.profiles():
+        flags = " (read-only)" if p.read_only else ""
+        print(f"{p.name}: {p.username}@{p.base_url} -> {p.mount_point}{flags}")
+    return 0
+
+
 def build_parser() -> tuple[argparse.ArgumentParser, dict[str, Handler]]:
     parser = argparse.ArgumentParser(prog=APP_NAME, description="Mount InterSystems IRIS code as files.")
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
@@ -77,18 +156,18 @@ def build_parser() -> tuple[argparse.ArgumentParser, dict[str, Handler]]:
     p.add_argument("--password-stdin", action="store_true", help="read the password from stdin")
     p.add_argument("--mountpoint")
     p.add_argument("--read-only", action="store_true")
-    handlers["mount"] = _not_implemented
+    handlers["mount"] = cmd_mount
 
     p = sub.add_parser("unmount", help="unmount a mount point")
     p.add_argument("path")
     p.add_argument("--force", action="store_true")
-    handlers["unmount"] = _not_implemented
+    handlers["unmount"] = cmd_unmount
 
     sub.add_parser("worker", help=argparse.SUPPRESS)  # internal: mount worker, JSON lines on stdin/stdout
-    handlers["worker"] = _not_implemented
+    handlers["worker"] = cmd_worker
 
     p = sub.add_parser("profiles", help="list configured profiles")
-    handlers["profiles"] = _not_implemented
+    handlers["profiles"] = cmd_profiles
 
     sub.add_parser("doctor", help="print environment diagnostics")
     handlers["doctor"] = cmd_doctor

@@ -26,7 +26,7 @@
 - **Decision:** when `show_system` is off, hide a doc if any of these hold:
   - it is a CSP/`@FS` file (always hidden in v1);
   - it is generated (`gen`);
-  - its name matches `^(%|Ens[A-Z.-]|Ensemble|HIPAA_)`, the prefixes InterSystems reserves;
+  - its name matches `^(%|Ens[A-Z.-]|Ensemble|Enseb|HIPAA_)`, the prefixes InterSystems reserves;
   - it comes from a `dbsys` database that isn't the namespace's default database (`GET /v8/{ns}` → `db[].default/dbsys`), or from an `@` pseudo-database other than `@OTHER`.
 - `@OTHER` docs that pass the name check stay visible; user lookup tables such as `DemoTable.LUT` are `@OTHER` items. In `%SYS`, the default database is `IRISSYS`, so non-`%` items there stay visible.
 - **Correction (Phase 4):** `upd` means *up to date* (source compiled), **not** "updatable". A seed routine that failed to compile had `upd:false`, and becomes `true` once it compiles. The first version of this rule hid `upd:false` items, which would have hidden any user routine with a compile error. `upd` is no longer used. Ens-generated routines in the user database (`EnsJob.mac`, `EnsUtil.mac`, …) are hidden by the name rule instead.
@@ -54,3 +54,11 @@
   - **Decision:** draw a monochrome glyph (black plus alpha) at runtime at 1× and 2× in a `wx.BitmapBundle`. After every `SetIcon`, use PyObjC (`pyobjc-framework-Cocoa`, macOS-only dependency) to find the `NSStatusBarButton` in the app's `NSStatusBarWindow` and call `image().setTemplate_(True)`. macOS then tints the icon for any menu bar background.
   - The icon has an active variant (filled) and an inactive one (outline).
 - **Linux and Windows:** use coloured icons, since there's no template concept. Choose the colour from `wx.SystemSettings.GetAppearance().IsDark()`, and refresh on `EVT_SYS_COLOUR_CHANGED`.
+
+## ADR-006: Size prefetch on readdir (Phase 5 performance gate)
+- **Context:** `st_size` must be exact for copy tools, and it's only known after exporting the document. `readdir` returns names only, so even plain `ls -R` stats every entry. The first performance run, over 2 000 classes in `PERFNS` on macOS, measured `ls -R` at 7.7 s (target under 5 s) and `ls -lR` from cold at 8.1 s: sequential exports at about 4 ms each.
+- **Decision:** `readdir` of a package folder submits background exports of its files to a pool of 4 threads, matching the client's concurrency limit. The content cache's single-flight lock makes the following `stat`s wait for, or reuse, the running export. Files whose size is already known or in flight are skipped. `Options.prefetch_workers=0` disables prefetch.
+- **Result:** `ls -R` 1.26 s, `ls -lR` from cold 1.47 s, warm 0.15 s on macOS; 1.22 s, 1.43 s and 0.23 s on Linux.
+- **Rejected:**
+  - `direct_io` with estimated sizes: it breaks tools that trust `st_size`.
+  - Exporting several items in one request and splitting the result: it depends on IRIS's exact formatting of multi-item exports.

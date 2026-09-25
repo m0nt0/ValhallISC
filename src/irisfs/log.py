@@ -26,6 +26,9 @@ def setup(name: str, *, verbose: bool = False, to_stderr: bool = True) -> Path:
     root = logging.getLogger()
     root.handlers.clear()
     root.setLevel(logging.DEBUG if verbose else logging.INFO)
+    # httpx/httpcore log every request (with URLs) at INFO/DEBUG; our client logs what matters.
+    for noisy in ("httpx", "httpcore"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
     fh = logging.handlers.RotatingFileHandler(path, maxBytes=2_000_000, backupCount=3, encoding="utf-8")
     fh.setFormatter(logging.Formatter(_FORMAT))
     root.addHandler(fh)

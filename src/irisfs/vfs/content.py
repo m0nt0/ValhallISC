@@ -33,10 +33,13 @@ class ContentCache:
                 if key in self._data:
                     self._data.move_to_end(key)
                     return self._data[key]
-            data = loader()
-            with self._lock:
-                self._store(key, data)
-                self._inflight.pop(key, None)
+            try:
+                data = loader()
+                with self._lock:
+                    self._store(key, data)
+            finally:
+                with self._lock:
+                    self._inflight.pop(key, None)
             return data
 
     def size(self, key: Key, loader: Callable[[], bytes]) -> int:
@@ -44,6 +47,10 @@ class ContentCache:
             if key in self._sizes:
                 return self._sizes[key]
         return len(self.get(key, loader))
+
+    def has_size(self, key: Key) -> bool:
+        with self._lock:
+            return key in self._sizes or key in self._inflight
 
     def _store(self, key: Key, data: bytes) -> None:
         self._sizes[key] = len(data)

@@ -10,6 +10,12 @@ kill p set p("Directory")=dir set sc=##class(Config.Databases).Create("TESTNS",.
 set sc=##class(Security.Resources).Create("%DB_TESTNS","TESTNS database","","") if 'sc { do $system.Status.DisplayError(sc) }
 set db=##class(SYS.Database).%OpenId(dir) set db.ResourceName="%DB_TESTNS" set sc=db.%Save() if 'sc { do $system.Status.DisplayError(sc) }
 kill p set p("Globals")="TESTNS",p("Routines")="TESTNS" set sc=##class(Config.Namespaces).Create("TESTNS",.p) if 'sc { do $system.Status.DisplayError(sc) }
+// ---- PERFNS namespace (performance tests: 2000 classes in 50 packages) ----
+set dir="/usr/irissys/mgr/perfns/"
+do ##class(%File).CreateDirectoryChain(dir)
+set sc=##class(SYS.Database).CreateDatabase(dir) if 'sc { do $system.Status.DisplayError(sc) }
+kill p set p("Directory")=dir set sc=##class(Config.Databases).Create("PERFNS",.p) if 'sc { do $system.Status.DisplayError(sc) }
+kill p set p("Globals")="PERFNS",p("Routines")="PERFNS" set sc=##class(Config.Namespaces).Create("PERFNS",.p) if 'sc { do $system.Status.DisplayError(sc) }
 // ---- read-only user: can read code, cannot write it ----
 set sc=##class(Security.Roles).Create("irisfs_ro_role","IRISFS read-only tests","%Development:U,%DB_USER:R,%DB_TESTNS:R,%DB_IRISSYS:R,%DB_IRISLIB:R,%DB_IRISTEMP:RW") if 'sc { do $system.Status.DisplayError(sc) }
 set sc=##class(Security.Users).Create("irisfs_ro","irisfs_ro_role","irisfs-ro-test","IRISFS read-only") if 'sc { do $system.Status.DisplayError(sc) }
@@ -27,5 +33,8 @@ set sc=$system.OBJ.Compile("Demo.Big","ck-d") if 'sc { do $system.Status.Display
 set ^Ens.LookupTable("DemoTable","it")="Italy",^Ens.LookupTable("DemoTable","fr")="France"
 set $namespace="TESTNS"
 set sc=$system.OBJ.ImportDir("/seed/TESTNS","*.cls;*.mac;*.inc","ck-d",,1) if 'sc { do $system.Status.DisplayError(sc) }
+set $namespace="PERFNS"
+for pk=1:1:50 { for c=1:1:40 { set cd=##class(%Dictionary.ClassDefinition).%New() set cd.Name="Perf.P"_pk_".C"_c set cd.Description="Performance test class "_pk_"/"_c set md=##class(%Dictionary.MethodDefinition).%New() set md.Name="Value" set md.ClassMethod=1 do md.Implementation.Write("    quit "_c) do cd.Methods.Insert(md) set sc=cd.%Save() if 'sc { do $system.Status.DisplayError(sc) } } }
+write !,"PERFNS classes: ",$order(^oddDEF(""),-1),!
 write !,"SEED DONE",!
 halt

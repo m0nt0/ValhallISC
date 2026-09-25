@@ -6,6 +6,7 @@ import errno
 import os
 import random
 import threading
+import time
 from typing import Any
 
 import pytest
@@ -416,3 +417,20 @@ def test_parallel_random_reads(env: Env, fake: FakeAtelier) -> None:
         t.join()
     assert errors == []
     assert fake.calls["export_xml"] == 20  # each document exported exactly once
+
+
+def test_readdir_prefetches_sizes(env: Env, fake: FakeAtelier) -> None:
+    env.fs.readdir("/TESTNS/Many")
+    deadline = time.monotonic() + 5
+    while fake.calls["export_xml"] < 20 and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert fake.calls["export_xml"] == 20
+    for i in range(20):
+        env.fs.getattr(f"/TESTNS/Many/C{i}.cls.xml")
+    assert fake.calls["export_xml"] == 20  # stats reuse the prefetched exports
+
+
+def test_prefetch_can_be_disabled(fake: FakeAtelier) -> None:
+    e = Env(fake, prefetch_workers=0)
+    e.fs.readdir("/TESTNS/Many")
+    assert fake.calls["export_xml"] == 0

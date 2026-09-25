@@ -8,7 +8,7 @@ from irisfs.atelier.models import DocInfo, NamespaceInfo
 
 # Names reserved by InterSystems: %*, the interoperability (Ens*) and HIPAA schema documents. Ens-generated
 # routines (EnsJob.mac, ...) live in the user database, so the database test alone does not hide them.
-_SYSTEM_NAME = re.compile(r"^(%|Ens(?:[A-Z.\-]|emble)|HIPAA_)")
+_SYSTEM_NAME = re.compile(r"^(%|Ens(?:[A-Z.\-]|emble|eb)|HIPAA_)")
 
 
 def is_visible(doc: DocInfo, ns: NamespaceInfo, *, show_system: bool) -> bool:

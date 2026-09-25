@@ -11,6 +11,7 @@ closes - but only if data was actually written (a read-write open without writes
 
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
 import errno
 import logging
@@ -19,6 +20,7 @@ import stat
 import threading
 import time
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -56,6 +58,7 @@ class Options:
     cache_bytes: int = 256 * 1024 * 1024
     case_insensitive: bool = False
     namespaces_ttl: float = 30.0
+    prefetch_workers: int = 4  # background exports started by readdir (0 disables)
 
     @property
     def load_flags(self) -> str:
@@ -156,6 +159,11 @@ class VirtualFS:
         self._buffers: dict[str, WriteBuffer] = {}  # path -> buffer being written
         self._scratch: dict[str, _Scratch] = {}  # junk files (never sent to IRIS)
         self._ghosts: dict[str, Ghost] = {}
+        self._prefetch = (
+            ThreadPoolExecutor(self.opts.prefetch_workers, thread_name_prefix="prefetch")
+            if self.opts.prefetch_workers > 0
+            else None
+        )
 
     # ==== server data =============================================================================
     def _call(self, fn: Callable[[], Any]) -> Any:
@@ -257,6 +265,8 @@ class VirtualFS:
             names = list(self.namespaces())
         elif isinstance(node, DirNode):
             names = sorted(node.children)
+            assert ns is not None
+            self._prefetch_sizes(ns, node)
         else:
             raise FsError(errno.ENOTDIR)
         prefix = path.rstrip("/") + "/"
@@ -268,6 +278,25 @@ class VirtualFS:
                 if p.startswith(prefix) and "/" not in p[len(prefix) :]
             ]
         return sorted(set(names) | set(extra))
+
+    def _prefetch_sizes(self, ns: str, node: DirNode) -> None:
+        """Listing a folder is almost always followed by a stat of every entry, and a file's size is only
+        known after exporting it. Start those exports now, in parallel, so the stats find them ready."""
+        if self._prefetch is None:
+            return
+        for child in node.children.values():
+            if isinstance(child, FileNode):
+                doc = child.doc
+                if not self.content.has_size((ns, doc.name, doc.ts)):
+                    self._prefetch.submit(self._prefetch_one, ns, doc)
+
+    def _prefetch_one(self, ns: str, doc: DocInfo) -> None:
+        with contextlib.suppress(FsError):  # the foreground stat will retry and report the error
+            self._export(ns, doc)
+
+    def close(self) -> None:
+        if self._prefetch is not None:
+            self._prefetch.shutdown(wait=False, cancel_futures=True)
 
     def open(self, path: str, flags: int) -> int:
         writing = (flags & os.O_ACCMODE) in (os.O_WRONLY, os.O_RDWR) or bool(flags & os.O_TRUNC)

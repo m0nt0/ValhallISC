@@ -30,6 +30,7 @@ def doc(name: str, db: str = "USER", upd: bool = True, gen: bool = False) -> Doc
         (doc("%Z.Mine.cls"), False),  # % names are system by convention
         (doc("EnsJob.mac", upd=False), False),  # Ens-generated routine in the user db
         (doc("Ensemble.inc"), False),
+        (doc("EnsebXMLErrors.inc"), False),
         (doc("Demo.Rtn2.mac", upd=False), True),  # upd = "up to date" (compiled), not "updatable"
         (doc("Enstrophy.Calc.cls"), True),  # only the reserved Ens prefixes are hidden
         (doc("Demo.Gen.cls", gen=True), False),
