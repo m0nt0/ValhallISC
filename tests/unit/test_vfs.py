@@ -441,3 +441,61 @@ def test_spotlight_marker(fake: FakeAtelier) -> None:
     assert ".metadata_never_index" in e.fs.readdir("/")
     assert e.fs.getattr("/.metadata_never_index").size == 0
     assert ".metadata_never_index" not in Env(fake).fs.readdir("/")
+
+
+def test_copy_same_file_twice_while_ghost_listed(env: Env, fake: FakeAtelier) -> None:
+    # Regression (found by E2E-28): cp over a ghost entry opens it O_WRONLY|O_TRUNC and must import again.
+    env.copy_in("/USER/bundle.xml", class_xml("Demo.Twice"))
+    assert "bundle.xml" in env.fs.readdir("/USER")
+    fh = env.fs.open("/USER/bundle.xml", os.O_WRONLY | os.O_TRUNC)
+    env.fs.write("/USER/bundle.xml", class_xml("Demo.Twice", description="second"), 0, fh)
+    env.fs.flush("/USER/bundle.xml", fh)
+    env.fs.release("/USER/bundle.xml", fh)
+    assert fake.calls["import_xml"] == 2
+    assert b"second" in fake.export_xml("USER", "Demo.Twice.cls")
+
+
+def test_open_ghost_for_write_without_writing_imports_nothing(env: Env, fake: FakeAtelier) -> None:
+    env.copy_in("/USER/g2.xml", class_xml("Demo.G2"))
+    fh = env.fs.open("/USER/g2.xml", os.O_RDWR)
+    env.fs.release("/USER/g2.xml", fh)
+    assert fake.calls["import_xml"] == 1
+
+
+def test_temp_file_then_rename_imports(env: Env, fake: FakeAtelier) -> None:
+    # ditto / Finder / editors: write a hidden temp file, then rename it to the final *.xml name.
+    tmp = "/USER/Demo/.BC.T_abc123"
+    fh = env.fs.create(tmp, 0o644)
+    env.fs.write(tmp, class_xml("Demo.ViaRename"), 0, fh)
+    env.fs.release(tmp, fh)
+    assert fake.calls["import_xml"] == 0  # a hidden temp file alone is never imported
+    env.fs.rename(tmp, "/USER/Demo/ViaRename.cls.xml")
+    assert fake.calls["import_xml"] == 1 and env.events[-1]["items"] == ["Demo.ViaRename.cls"]
+    assert ".BC.T_abc123" not in env.fs.readdir("/USER/Demo")
+    assert "ViaRename.cls.xml" in env.fs.readdir("/USER/Demo")
+
+
+def test_rename_invalid_temp_is_eio(env: Env, fake: FakeAtelier) -> None:
+    fh = env.fs.create("/USER/.tmp1", 0o644)
+    env.fs.write("/USER/.tmp1", b"not xml", 0, fh)
+    env.fs.release("/USER/.tmp1", fh)
+    assert errno_of(env.fs.rename, "/USER/.tmp1", "/USER/x.xml") == errno.EIO
+    assert fake.calls["import_xml"] == 0 and env.events[-1]["event"] == "import_failed"
+
+
+def test_rename_temp_to_non_xml_refused(env: Env) -> None:
+    env.fs.release("/USER/.tmp2", env.fs.create("/USER/.tmp2", 0o644))
+    assert errno_of(env.fs.rename, "/USER/.tmp2", "/USER/notes.txt") == errno.EPERM
+
+
+def test_hidden_temp_needs_writable_mount_and_namespace(fake: FakeAtelier) -> None:
+    assert errno_of(Env(fake, read_only=True).fs.create, "/USER/.tmp", 0o644) == errno.EROFS
+    assert errno_of(Env(fake).fs.create, "/.tmp", 0o644) == errno.EACCES
+
+
+def test_open_scratch_handle_survives_rename(env: Env) -> None:
+    fh = env.fs.create("/USER/.tmp3", 0o644)
+    env.fs.rename("/USER/.tmp3", "/USER/.tmp4")
+    env.fs.write("/USER/.tmp4", b"abc", 0, fh)
+    assert env.fs.read("/USER/.tmp4", 10, 0, fh) == b"abc"
+    env.fs.release("/USER/.tmp4", fh)

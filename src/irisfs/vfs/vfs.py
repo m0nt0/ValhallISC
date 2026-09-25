@@ -95,6 +95,7 @@ class Handle:
     path: str
     snapshot: bytes = b""
     buffer: WriteBuffer | None = None
+    scratch: _Scratch | None = None
 
 
 @dataclass
@@ -305,9 +306,10 @@ class VirtualFS:
         writing = (flags & os.O_ACCMODE) in (os.O_WRONLY, os.O_RDWR) or bool(flags & os.O_TRUNC)
         with self._lock:
             if path in self._scratch:
+                scratch = self._scratch[path]
                 if flags & os.O_TRUNC:
-                    self._scratch[path].data.clear()
-                return self._new_handle(Handle("scratch", path))
+                    scratch.data.clear()
+                return self._new_handle(Handle("scratch", path, scratch=scratch))
             if path in self._buffers:
                 if writing:
                     self._check_writable()
@@ -317,8 +319,22 @@ class VirtualFS:
                     buf.dirty = True
                 buf.refs += 1
                 return self._new_handle(Handle("write", path, buffer=buf))
-            if path in self._ghosts and not writing:
-                return self._new_handle(Handle("ghost", path, snapshot=self._ghosts[path].data))
+            if path in self._ghosts:
+                if not writing:
+                    return self._new_handle(Handle("ghost", path, snapshot=self._ghosts[path].data))
+                # Copying the same file in again while its ghost is still listed: write it anew.
+                self._check_writable()
+                ghost = self._ghosts.pop(path)
+                parts = split(path)
+                ns_name = self._namespace(parts[0]) if parts else None
+                if ns_name is None:
+                    raise FsError(errno.ENOENT)
+                truncate = bool(flags & os.O_TRUNC)
+                wb = WriteBuffer(
+                    ns_name, path, bytearray(b"" if truncate else ghost.data), dirty=truncate, refs=1
+                )
+                self._buffers[path] = wb
+                return self._new_handle(Handle("write", path, buffer=wb))
         ns, node = self._resolve(path)
         if node is None or isinstance(node, DirNode):
             raise FsError(errno.EISDIR)
@@ -337,8 +353,8 @@ class VirtualFS:
     def read(self, path: str, size: int, offset: int, fh: int) -> bytes:
         h = self._handle(fh)
         with self._lock:
-            if h.kind == "scratch":
-                return bytes(self._scratch[h.path].data[offset : offset + size])
+            if h.kind == "scratch" and h.scratch is not None:
+                return bytes(h.scratch.data[offset : offset + size])
             if h.kind == "write":
                 assert h.buffer is not None
                 return bytes(h.buffer.data[offset : offset + size])
@@ -349,21 +365,36 @@ class VirtualFS:
         if self.opts.read_only:
             raise FsError(errno.EROFS)
 
+    def _new_scratch(self, path: str) -> int:
+        with self._lock:
+            scratch = _Scratch()
+            self._scratch[path] = scratch
+            return self._new_handle(Handle("scratch", path, scratch=scratch))
+
+    def _target_namespace(self, parts: tuple[str, ...]) -> str:
+        """Namespace for a new file at `parts`; its parent folder must exist."""
+        if len(parts) < 2:
+            raise FsError(errno.EACCES, "files can only be created inside a namespace")
+        ns, parent = self._resolve("/" + "/".join(parts[:-1]))
+        if not isinstance(parent, DirNode) or ns is None:
+            raise FsError(errno.ENOTDIR)
+        return ns
+
     def create(self, path: str, mode: int) -> int:
         parts = split(path)
         filename = parts[-1] if parts else ""
         if junk.is_junk(filename):
-            with self._lock:
-                self._scratch[path] = _Scratch()
-                return self._new_handle(Handle("scratch", path))
+            return self._new_scratch(path)
         self._check_writable()
-        if len(parts) < 2:
-            raise FsError(errno.EACCES, "files can only be created inside a namespace")
+        if filename.startswith(".") and not is_xml_name(filename):
+            # Hidden temporary file (ditto/Finder ".BC.T_*", editors' atomic saves): kept in memory and
+            # imported only if it is renamed to an *.xml name.
+            self._target_namespace(parts)
+            return self._new_scratch(path)
         if not is_xml_name(filename):
+            log.debug("refusing to create %s: not an .xml file", path)
             raise FsError(errno.EACCES, "only .xml export files can be copied here")
-        ns, parent = self._resolve("/" + "/".join(parts[:-1]))
-        if not isinstance(parent, DirNode) or ns is None:
-            raise FsError(errno.ENOTDIR)
+        ns = self._target_namespace(parts)
         with self._lock:
             self._ghosts.pop(path, None)
             buf = self._buffers.get(path)
@@ -379,8 +410,8 @@ class VirtualFS:
     def write(self, path: str, data: bytes, offset: int, fh: int) -> int:
         h = self._handle(fh)
         with self._lock:
-            if h.kind == "scratch":
-                target = self._scratch[h.path].data
+            if h.kind == "scratch" and h.scratch is not None:
+                target = h.scratch.data
             elif h.kind == "write" and h.buffer is not None:
                 target = h.buffer.data
                 h.buffer.dirty = True
@@ -438,18 +469,20 @@ class VirtualFS:
             data = bytes(buf.data)
         self._import(buf.ns, buf.path, data)
 
-    def _import(self, ns: str, path: str, data: bytes) -> None:
+    def _import(self, ns: str, path: str, data: bytes) -> bool:
+        """Import `data` as the file at `path`. Returns False if it is not a valid IRIS export.
+        Server-side outcomes (imported / failed / compile errors) are reported through events."""
         filename = split(path)[-1]
         try:
             manifest = xmlexport.validate(data)
         except xmlexport.InvalidExport as e:
             self._emit({"event": "import_failed", "ns": ns, "file": filename, "message": str(e)})
-            return
+            return False
         try:
             result = self.api.import_xml(ns, data, file=filename, flags=self.opts.load_flags)
         except AtelierError as e:
             self._emit({"event": "import_failed", "ns": ns, "file": filename, "message": e.message})
-            return
+            return True
         finally:
             for name in manifest.items:
                 self.content.invalidate(ns, name)
@@ -463,7 +496,7 @@ class VirtualFS:
                     "message": result.error or "nothing imported",
                 }
             )
-            return
+            return True
         self._emit(
             {
                 "event": "imported",
@@ -478,6 +511,7 @@ class VirtualFS:
         if path not in canonical:
             with self._lock:
                 self._ghosts[path] = Ghost(data, self._clock() + GHOST_TTL)
+        return True
 
     # ==== refused / no-op operations ==============================================================
     def unlink(self, path: str) -> None:
@@ -489,12 +523,27 @@ class VirtualFS:
         raise FsError(errno.EPERM, "deleting documents is not supported")
 
     def rename(self, old: str, new: str) -> None:
+        """Only in-memory files can be renamed. Renaming one to an *.xml name imports it: that is how
+        ditto/Finder (".BC.T_*" temp files) and editors doing atomic saves deliver content."""
+        log.debug("rename %s -> %s", old, new)
+        new_parts = split(new)
+        new_name = new_parts[-1] if new_parts else ""
+        stays_scratch = junk.is_junk(new_name) or (new_name.startswith(".") and not is_xml_name(new_name))
         with self._lock:
-            if old in self._scratch and junk.is_junk(split(new)[-1] if split(new) else ""):
+            scratch = self._scratch.get(old)
+            if scratch is not None and stays_scratch:
                 self._scratch[new] = self._scratch.pop(old)
                 return
         self._check_writable()
-        raise FsError(errno.EPERM, "renaming is not supported")
+        if scratch is None or not is_xml_name(new_name) or junk.is_junk(new_name):
+            raise FsError(errno.EPERM, "renaming is not supported")
+        ns = self._target_namespace(new_parts)
+        with self._lock:
+            self._scratch.pop(old, None)
+            self._ghosts.pop(new, None)
+            data = bytes(scratch.data)
+        if not self._import(ns, new, data):
+            raise FsError(errno.EIO, "not a valid IRIS XML export")
 
     def mkdir(self, path: str, mode: int) -> None:
         self._check_writable()
