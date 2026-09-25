@@ -7,14 +7,18 @@ import threading
 
 import wx
 import wx.adv
+import wx.lib.scrolledpanel
 
 from irisfs import APP_NAME
 from irisfs.config.profile import Profile
+from irisfs.gui import icons
 from irisfs.gui.controller import AppController, ProfileItem
 
 log = logging.getLogger(__name__)
 ERROR_BG = wx.Colour(255, 225, 225)
-UNCHANGED = "(unchanged)"
+UNCHANGED = "Saved — type to replace"
+ERROR_FG = wx.Colour(170, 20, 20)
+OK_FG = wx.Colour(30, 110, 55)
 
 
 class ProfilesFrame(wx.Frame):
@@ -39,13 +43,13 @@ class ProfilesFrame(wx.Frame):
         self.tool_add = tb.AddTool(
             wx.ID_ADD,
             "New",
-            wx.ArtProvider.GetBitmapBundle(wx.ART_PLUS, wx.ART_TOOLBAR, art),
+            icons.svg_bundle(icons.PLUS_SVG, art.width),
             shortHelp="New profile",
         )
         self.tool_delete = tb.AddTool(
             wx.ID_DELETE,
             "Delete",
-            wx.ArtProvider.GetBitmapBundle(wx.ART_DELETE, wx.ART_TOOLBAR, art),
+            icons.svg_bundle(icons.TRASH_SVG, art.width),
             shortHelp="Delete the selected profile",
         )
         tb.Realize()
@@ -63,22 +67,25 @@ class ProfilesFrame(wx.Frame):
         form = wx.Panel(root)
         self.form = form
         self.note = wx.StaticText(form, label="")
+        # Fields scroll; the button row below stays put, so nothing can slide under it (design review #1).
+        fields = wx.lib.scrolledpanel.ScrolledPanel(form, style=wx.TAB_TRAVERSAL)
+        self.fields_panel = fields
         self.note.SetForegroundColour(wx.Colour(160, 100, 0))
-        self.name = wx.TextCtrl(form)
-        self.host = wx.TextCtrl(form)
+        self.name = wx.TextCtrl(fields)
+        self.host = wx.TextCtrl(fields)
         self.host.SetHint("host name or IP address")
-        self.port = wx.SpinCtrl(form, min=1, max=65535, initial=52773)
-        self.user = wx.TextCtrl(form)
-        self.password = wx.TextCtrl(form, style=wx.TE_PASSWORD)
-        self.read_only = wx.CheckBox(form, label="Mount read-only")
+        self.port = wx.TextCtrl(fields, value="52773")  # a spinner's ± is useless for 52773
+        self.user = wx.TextCtrl(fields)
+        self.password = wx.TextCtrl(fields, style=wx.TE_PASSWORD)
+        self.read_only = wx.CheckBox(fields, label="Mount read-only")
         self.mount_point = wx.DirPickerCtrl(
-            form, message="Choose the folder where the server appears", style=wx.DIRP_USE_TEXTCTRL
+            fields, message="Choose the folder where the server appears", style=wx.DIRP_USE_TEXTCTRL
         )
         self.mount_point.SetToolTip(
             "macOS/Linux: an empty folder (created if missing).\n"
             "Windows: a drive letter (X:) or a folder that does not exist yet."
         )
-        self.advanced = wx.CollapsiblePane(form, label="Advanced")
+        self.advanced = wx.CollapsiblePane(fields, label="Advanced")
         adv = self.advanced.GetPane()
         self.https = wx.CheckBox(adv, label="Use HTTPS")
         self.verify_tls = wx.CheckBox(adv, label="Verify TLS certificate")
@@ -106,35 +113,50 @@ class ProfilesFrame(wx.Frame):
 
         grid = wx.FlexGridSizer(cols=2, vgap=8, hgap=8)
         grid.AddGrowableCol(1)
-        for label, ctrl in (
-            ("Name", self.name),
-            ("Server", self.host),
-            ("Port", self.port),
-            ("User", self.user),
-            ("Password", self.password),
-            ("", self.read_only),
-            ("Mount folder", self.mount_point),
+        self.field_errors: dict[str, wx.StaticText] = {}
+        for label, field, ctrl in (
+            ("Name", "name", self.name),
+            ("Server", "host", self.host),
+            ("Port", "port", self.port),
+            ("User", "username", self.user),
+            ("Password", "", self.password),
+            ("", "", self.read_only),
+            ("Mount folder", "mount_point", self.mount_point),
         ):
-            grid.Add(wx.StaticText(form, label=label), 0, wx.ALIGN_CENTER_VERTICAL | wx.ALIGN_RIGHT)
-            grid.Add(ctrl, 1, wx.EXPAND)
-        self.errors = wx.StaticText(form, label="")
+            grid.Add(wx.StaticText(fields, label=label), 0, wx.ALIGN_TOP | wx.ALIGN_RIGHT | wx.TOP, 4)
+            cell = wx.BoxSizer(wx.VERTICAL)
+            cell.Add(ctrl, 0, wx.EXPAND)
+            if field:
+                # errors are shown under their own field (not in one block far away)
+                message = wx.StaticText(fields, label="")
+                message.SetForegroundColour(ERROR_FG)
+                message.Hide()
+                cell.Add(message, 0, wx.TOP, 2)
+                self.field_errors[field] = message
+            grid.Add(cell, 1, wx.EXPAND)
+        self.errors = wx.StaticText(fields, label="")
         self.errors.SetForegroundColour(wx.Colour(190, 0, 0))
         self.btn_test = wx.Button(form, label="Test connection")
+        self.test_result = wx.StaticText(form, label="")  # inline result instead of a dialog
         self.btn_revert = wx.Button(form, label="Revert")
         self.btn_save = wx.Button(form, wx.ID_SAVE, label="Save")
         buttons = wx.BoxSizer(wx.HORIZONTAL)
         buttons.Add(self.btn_test)
-        buttons.AddStretchSpacer()
+        buttons.Add(self.test_result, 1, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 10)
         buttons.Add(self.btn_revert, 0, wx.RIGHT, 8)
         buttons.Add(self.btn_save)
 
+        inner = wx.BoxSizer(wx.VERTICAL)
+        inner.Add(grid, 0, wx.EXPAND | wx.RIGHT, 6)
+        inner.Add(self.advanced, 0, wx.EXPAND | wx.TOP | wx.RIGHT, 8)
+        inner.Add(self.errors, 0, wx.EXPAND | wx.TOP, 8)
+        fields.SetSizer(inner)
+        fields.SetupScrolling(scroll_x=False, rate_y=12)
+
         col = wx.BoxSizer(wx.VERTICAL)
         col.Add(self.note, 0, wx.BOTTOM, 6)
-        col.Add(grid, 0, wx.EXPAND)
-        col.Add(self.advanced, 0, wx.EXPAND | wx.TOP, 8)
-        col.Add(self.errors, 0, wx.EXPAND | wx.TOP, 8)
-        col.AddStretchSpacer()
-        col.Add(buttons, 0, wx.EXPAND | wx.TOP, 8)
+        col.Add(fields, 1, wx.EXPAND)
+        col.Add(buttons, 0, wx.EXPAND | wx.TOP, 10)
         form.SetSizer(col)
 
         main = wx.BoxSizer(wx.HORIZONTAL)
@@ -153,12 +175,11 @@ class ProfilesFrame(wx.Frame):
         }
         for ctrl in (self.name, self.host, self.user, self.password, self.prefix):
             ctrl.Bind(wx.EVT_TEXT, self._on_edit)
-        self.port.Bind(wx.EVT_SPINCTRL, self._on_edit)
         self.port.Bind(wx.EVT_TEXT, self._on_edit)
         for cb in (self.read_only, self.https, self.verify_tls, self.show_system, self.compile):
             cb.Bind(wx.EVT_CHECKBOX, self._on_edit)
         self.mount_point.Bind(wx.EVT_DIRPICKER_CHANGED, self._on_edit)
-        self.advanced.Bind(wx.EVT_COLLAPSIBLEPANE_CHANGED, lambda _e: self.form.Layout())
+        self.advanced.Bind(wx.EVT_COLLAPSIBLEPANE_CHANGED, lambda _e: self._fit_contents())
         self.btn_save.Bind(wx.EVT_BUTTON, lambda _e: self.on_save())
         self.btn_revert.Bind(wx.EVT_BUTTON, lambda _e: self.on_revert())
         self.btn_test.Bind(wx.EVT_BUTTON, lambda _e: self.on_test())
@@ -219,7 +240,8 @@ class ProfilesFrame(wx.Frame):
             p = profile
             self.name.SetValue(p.name if p else "")
             self.host.SetValue(p.host if p else "")
-            self.port.SetValue(p.port if p else 52773)
+            self.port.SetValue(str(p.port if p else 52773))
+            self.test_result.SetLabel("")
             self.user.SetValue(p.username if p else "")
             has_password = bool(p) and not is_new and self.controller.store.password(p.id) is not None  # type: ignore[union-attr]
             self.password.SetValue("")
@@ -244,7 +266,7 @@ class ProfilesFrame(wx.Frame):
             id=self.current.id,
             name=self.name.GetValue().strip(),
             host=self.host.GetValue().strip(),
-            port=self.port.GetValue(),
+            port=self._port_value(),
             username=self.user.GetValue().strip(),
             mount_point=self.mount_point.GetPath().strip(),
             read_only=self.read_only.GetValue(),
@@ -255,6 +277,18 @@ class ProfilesFrame(wx.Frame):
             compile_on_import=self.compile.GetValue(),
             compile_flags=self.current.compile_flags,
         )
+
+    def _port_value(self) -> int:
+        try:
+            return int(self.port.GetValue().strip())
+        except ValueError:
+            return 0  # reported by validation as "Port must be between 1 and 65535"
+
+    def _fit_contents(self) -> None:
+        """Recompute the scrollable field area after its content changed (Advanced, error lines)."""
+        self.fields_panel.Layout()
+        self.fields_panel.FitInside()
+        self.form.Layout()
 
     def _form_password(self) -> str | None:
         value = self.password.GetValue()
@@ -308,9 +342,14 @@ class ProfilesFrame(wx.Frame):
             if target is not None:
                 target.SetBackgroundColour(ERROR_BG if field_name in errors else wx.NullColour)
                 target.Refresh()
-        self.errors.SetLabel("\n".join(errors.values()))
-        self.errors.Wrap(max(200, self.form.GetClientSize().width - 20))
-        self.form.Layout()
+        for field_name, label in self.field_errors.items():
+            label.SetLabel(errors.get(field_name, ""))
+            label.Show(field_name in errors)
+        # anything without its own field (e.g. compile flags) still goes in the general line
+        rest = [msg for name, msg in errors.items() if name not in self.field_errors]
+        self.errors.SetLabel("\n".join(rest))
+        self.errors.Wrap(max(200, self.fields_panel.GetClientSize().width - 20))
+        self._fit_contents()
 
     # ---- actions -----------------------------------------------------------------------------
     def _confirm_discard(self) -> bool:
@@ -377,6 +416,7 @@ class ProfilesFrame(wx.Frame):
         password = self._form_password()
         self.btn_test.Disable()
         self.btn_test.SetLabel("Testing…")
+        self.test_result.SetLabel("")
 
         def work() -> None:
             ok, message = self.controller.test_connection(profile, password)
@@ -387,10 +427,11 @@ class ProfilesFrame(wx.Frame):
                 return
             self.btn_test.SetLabel("Test connection")
             self.btn_test.Enable()
-            if ok:
-                self.controller.prompter.info("Connection OK", message)
-            else:
-                self.controller.prompter.error("Connection failed", message)
+            first_line = message.splitlines()[0] if message else ""
+            self.test_result.SetForegroundColour(OK_FG if ok else ERROR_FG)
+            self.test_result.SetLabel(("✓ " if ok else "✗ ") + first_line)
+            self.test_result.SetToolTip(message)
+            self.form.Layout()
 
         threading.Thread(target=work, daemon=True).start()
 

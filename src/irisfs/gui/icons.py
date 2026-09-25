@@ -49,6 +49,24 @@ def tray_bundle(*, active: bool) -> wx.BitmapBundle:
     return wx.BitmapBundle.FromBitmaps(bitmaps)
 
 
+# Toolbar glyphs (the spec asks for "+" and a trash bin; stock art differs per platform: GTK shows a red X).
+PLUS_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="none" '
+    'stroke="{c}" stroke-width="1.8" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>'
+)
+TRASH_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="none" '
+    'stroke="{c}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">'
+    '<path d="M2.5 4h11M6 4V2.5h4V4M4 4l.7 9.5h6.6L12 4M6.8 6.5v4.5M9.2 6.5v4.5"/></svg>'
+)
+
+
+def svg_bundle(template: str, size: int = 20) -> wx.BitmapBundle:
+    """Render one of the glyphs above in the system text color (so it works in light and dark themes)."""
+    colour = wx.SystemSettings.GetColour(wx.SYS_COLOUR_WINDOWTEXT).GetAsString(wx.C2S_HTML_SYNTAX)
+    return wx.BitmapBundle.FromSVG(template.format(c=colour).encode(), wx.Size(size, size))
+
+
 def app_icon() -> wx.Icon:
     icon = wx.Icon()
     icon.CopyFromBitmap(wx.Bitmap(_load("tray@2x.png")))

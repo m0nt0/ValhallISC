@@ -50,7 +50,7 @@ def test_add_fill_save(frame: Any, env: Env, wx_app: Any) -> None:
     assert frame.name.GetValue() == "New server" and frame.btn_save.IsEnabled()
     frame.name.SetValue("Dev IRIS")
     frame.host.SetValue("10.0.0.5")
-    frame.port.SetValue(1972)
+    frame.port.SetValue("1972")
     frame.user.SetValue("dev")
     frame.password.SetValue("s3cret")
     frame.read_only.SetValue(True)
@@ -67,14 +67,18 @@ def test_add_fill_save(frame: Any, env: Env, wx_app: Any) -> None:
     )
     assert env.store.password(saved.id) == "s3cret"
     assert not frame.current_is_new and not frame.dirty
-    assert frame.password.GetHint() == "(unchanged)"
+    from irisfs.gui.profiles_frame import UNCHANGED
+
+    assert frame.password.GetHint() == UNCHANGED
 
 
 def test_invalid_save_shows_errors(frame: Any, env: Env, wx_app: Any) -> None:
     frame.on_add()
     frame.host.SetValue("http://bad host")
     assert frame.on_save() is False
-    assert "host" in frame.errors.GetLabel().lower() or "Enter a host" in frame.errors.GetLabel()
+    host_error = frame.field_errors["host"]
+    assert host_error.IsShown() and "host name" in host_error.GetLabel()  # shown under its own field
+    assert not frame.field_errors["port"].IsShown()
     assert env.store.profiles() == []
 
 
@@ -178,3 +182,32 @@ def test_prompter_ignores_destroyed_parent(env: Env, wx_app: Any) -> None:
     f.Destroy()
     pump(wx_app)
     assert WxPrompter(parent_getter=lambda: f)._parent() is None
+
+
+def test_port_must_be_a_number(frame: Any, env: Env, wx_app: Any) -> None:
+    frame.on_add()
+    frame.port.SetValue("abc")
+    assert frame.on_save() is False
+    assert frame.field_errors["port"].IsShown()
+
+
+def test_advanced_options_never_hide_under_buttons(frame: Any, wx_app: Any) -> None:
+    # Regression (design review): expanding Advanced pushed options under the button row.
+    frame.on_add()
+    frame.SetSize(frame.GetMinSize())
+    pump(wx_app)
+    frame.advanced.Expand()
+    frame._fit_contents()
+    pump(wx_app)
+    fields = frame.fields_panel
+    # the fields scroll inside their own area, which ends above the (fixed) button row
+    assert fields.GetScreenRect().bottom <= frame.btn_save.GetScreenRect().top
+    compile_bottom = frame.compile.GetPosition().y + frame.compile.GetSize().height  # inside the pane
+    pane_top = frame.advanced.GetPosition().y
+    assert fields.GetVirtualSize().height >= pane_top + compile_bottom  # reachable by scrolling
+
+
+def test_toolbar_uses_trash_and_plus_glyphs(frame: Any) -> None:
+    tb = frame.GetToolBar()
+    for tool in (frame.tool_add, frame.tool_delete):
+        assert tb.FindById(tool.GetId()).GetNormalBitmap().IsOk()
