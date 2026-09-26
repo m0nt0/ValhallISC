@@ -43,6 +43,8 @@ from irisfs.vfs.tree import DirNode, FileNode, TreeCache, lookup
 log = logging.getLogger(__name__)
 Event = dict[str, Any]
 Clock = Callable[[], float]
+# access-mode bits of open() flags; Windows' os module has no O_ACCMODE, but WinFsp uses the same 0/1/2 values
+O_ACCMODE = getattr(os, "O_ACCMODE", os.O_RDONLY | os.O_WRONLY | os.O_RDWR)
 
 ENOATTR = getattr(errno, "ENOATTR", errno.ENODATA)
 GHOST_TTL = 60.0
@@ -314,7 +316,7 @@ class VirtualFS:
             self._prefetch.shutdown(wait=False, cancel_futures=True)
 
     def open(self, path: str, flags: int) -> int:
-        writing = (flags & os.O_ACCMODE) in (os.O_WRONLY, os.O_RDWR) or bool(flags & os.O_TRUNC)
+        writing = (flags & O_ACCMODE) in (os.O_WRONLY, os.O_RDWR) or bool(flags & os.O_TRUNC)
         with self._lock:
             if path in self._scratch:
                 scratch = self._scratch[path]
