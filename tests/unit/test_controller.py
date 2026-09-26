@@ -278,7 +278,7 @@ def test_state_changes_refresh_ui(env: Env) -> None:
 def test_new_profile_has_unique_name_and_default_folder(env: Env) -> None:
     env.add("New server")
     p = env.ctl.new_profile()
-    assert p.name == "New server 2" and p.mount_point.endswith("ValhallISC/New server 2")
+    assert p.name == "New server 2" and Path(p.mount_point).parts[-2:] == ("ValhallISC", "New server 2")
     assert not env.ctl.is_saved(p.id)
 
 
