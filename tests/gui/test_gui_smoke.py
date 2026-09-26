@@ -43,6 +43,15 @@ def click(button: Any) -> None:
     button.ProcessEvent(wx.CommandEvent(wx.EVT_BUTTON.typeId, button.GetId()))
 
 
+def test_profile_list_has_one_border_style(frame: Any) -> None:
+    # Regression: HLB_DEFAULT_STYLE | BORDER_THEME set two border styles; wxMSW asserts ("unknown border
+    # style") and the Profiles window never opened on Windows.
+    import wx
+
+    border = frame.list.GetWindowStyleFlag() & wx.BORDER_MASK
+    assert border == wx.BORDER_THEME
+
+
 def test_empty_store_shows_empty_form(frame: Any) -> None:
     assert frame.row_count() == 0
     assert frame.current is None

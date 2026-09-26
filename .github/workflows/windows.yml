@@ -34,6 +34,12 @@ jobs:
         shell: pwsh
         run: .venv\Scripts\python -m pytest -q --tb=short tests\unit
 
+      - name: GUI tests must pass on Windows (real wxMSW widgets)
+        shell: pwsh
+        env:
+          IRISFS_REQUIRE_GUI: "1"
+        run: .venv\Scripts\python -m pytest -q --tb=short tests\gui
+
       - name: Smoke test the console executable
         shell: pwsh
         run: |

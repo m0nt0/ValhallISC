@@ -82,7 +82,9 @@ class ProfilesFrame(wx.Frame):
 
         # left: list + buttons
         side = wx.Panel(root)
-        self.list = wx.html.SimpleHtmlListBox(side, style=wx.html.HLB_DEFAULT_STYLE | wx.BORDER_THEME)
+        # one border style only: HLB_DEFAULT_STYLE already has BORDER_SUNKEN, and two asserts on Windows
+        style = (wx.html.HLB_DEFAULT_STYLE & ~wx.BORDER_MASK) | wx.BORDER_THEME
+        self.list = wx.html.SimpleHtmlListBox(side, style=style)
         self.list.Bind(wx.EVT_LISTBOX, lambda e: self.select_row(e.GetSelection()))
         self.btn_add = wx.BitmapButton(side, bitmap=icons.svg_bundle(icons.PLUS_SVG, 16))
         self.btn_add.SetToolTip("New profile")
