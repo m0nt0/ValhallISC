@@ -244,7 +244,8 @@ htmlcov/
 build/
 dist/
 *.spec.bak
-src/irisfs/_build.py            # git revision, written by scripts/build-*.sh
+# git revision, written by scripts/build-*.sh
+src/irisfs/_build.py
 
 # --- spikes / local scratch -----------------------------------------------------------------------
 spikes/*.log
