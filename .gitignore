@@ -216,3 +216,79 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+
+# =====================================================================================================
+# ValhallISC project entries
+# =====================================================================================================
+# --- Python ---------------------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.venv/
+venv/
+.python-version
+
+# --- tooling caches / reports ---------------------------------------------------------------------
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# --- build and packaging (PyInstaller) ------------------------------------------------------------
+build/
+dist/
+*.spec.bak
+src/irisfs/_build.py            # git revision, written by scripts/build-*.sh
+
+# --- spikes / local scratch -----------------------------------------------------------------------
+spikes/*.log
+spikes/*.err
+*.log
+
+# --- editors / OS ---------------------------------------------------------------------------------
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
+._*
+Thumbs.db
+desktop.ini
+
+# --- local screenshots dropped in the project folder ----------------------------------------------
+Monosnap*.png
+
+# --- secrets never belong in git (the test IRIS password in docker/.env.test is test-only) ---------
+*.pem
+*.key
+.env
+.env.local
+
+# --- code signing / notarization material: NEVER commit (keychain only) ------------------------------
+*.cer
+*.crt
+*.p12
+*.pfx
+*.p8
+*.mobileprovision
+*.provisionprofile
+*.keychain
+*.keychain-db
+AuthKey_*.p8
+*notary*.json
+
+# --- release artifacts: publish them as GitHub release assets, not in git -----------------------------
+*.dmg
+*.pkg
+*.msi
+*.exe
+*.AppImage
+
+# our PyInstaller spec is hand-written source (the Python template above ignores *.spec)
+!packaging/valhallisc.spec

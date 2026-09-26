@@ -1,0 +1,3 @@
+ROUTINE Demo.Rtn2
+ ; Routine with a dot in its name (no label: labels cannot contain dots)
+ quit

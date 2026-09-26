@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="IRIS" version="26">
+<Class name="Demo.FinderHello">
+<Description>Sample class for the IRISFS manual copy-in checks (Finder / Explorer).</Description>
+<Method name="Hello">
+<ClassMethod>1</ClassMethod>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+    quit "Hello from a file copied into IRISFS"
+]]></Implementation>
+</Method>
+</Class>
+</Export>

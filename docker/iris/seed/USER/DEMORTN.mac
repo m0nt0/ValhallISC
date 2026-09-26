@@ -1,0 +1,6 @@
+ROUTINE DEMORTN
+DEMORTN ; Demo routine for IRISFS tests
+    quit
+hello(name) public {
+    quit "Hello from DEMORTN, "_$get(name,"World")
+}

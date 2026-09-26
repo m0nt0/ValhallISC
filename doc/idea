@@ -1,0 +1,17 @@
+starting from the initial idea exposed here
+
+"""
+Expose internal code elements (classes, routines etc) through SFTP, CIFS/SMB or similar established protocol
+
+Imagine the host environment of an IRIS instance being able to access classes, routines and other "code" entities exactly as if they were files in its native filesystem.
+
+The isfs FileSystemProvider achieves something close to this, but only from within VS Code. Serenji for VS Code does a similar thing, leveraging the FTP/FTPS server that Deltanji implements. But native support for this within IRIS could open the way for a huge range of tools (developer, devops and other types) to be able to work seamlessly with the entities that reside within IRIS databases.
+"""
+
+write a python / wxpython program that makes an interface to intersystems isfs and simulate a normal filesystem on the pc where it is executed "mounting" the server in the desired folder. The first subfolder level will be the namespaces in that server and every namespace will have all the intersystems elements. copying an element from the "virtual filesystem" to the real one will export the element in xml and copying an element from the system to the "virtual filesystem" will make an import only if the file is an xml. after that we will check on how to create a new element..
+
+the client should be available for macos / linux and windows and it will be distributed with pyinstaller as a single file application if possible
+
+it should starts in the system tray, when you click the icon it presents the list with all the configured profiles and a flag that tells if that server is "active". When you click on an active server, a confirmation message will asks if you want to unmount the server, if yes is picked then you have to unmount the server and make it inactive. If you click on an inactive server, it will connect to that server and will mount it as the profile says. If you right click the icon you can choose Profiles and quit. Quit will asks for a confirmation and if yes is picked then all the servers will be made inactive and the program will be closed. If you choose profiles a GUI with a list on the left with all profile will appear. The active profiles will be "read only" while selecting the other on the right there will be a form with server ip, port, user and password. there should be a flag to mount it as read only and a directory picker that allow you to choose where it should be mounted.
+There will be also a "+" icon on the top that allow you to create a new profile and a "trash bin" icon that will delete the selected profile asking a confirmation. An active profile can't be deleted.
+
