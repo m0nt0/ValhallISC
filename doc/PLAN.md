@@ -1,8 +1,8 @@
 # IRISFS (ValhallISC): implementation plan
 
-> **Status (2026-09-26):** implemented. The product is named **ValhallISC**; the Python package keeps the working title `irisfs`. Gates G0–G9 and G11 have passed on macOS (macFUSE **and** FUSE-T) and on Linux. Still open:
-> - the Windows validation of G10 (the tray app works on Windows from source; the packaged `.exe` is not yet validated);
-> - Release 0.9.1: signed and notarized DMGs for Apple silicon and Intel, plus Linux x86_64/aarch64 binaries (`doc/progress/release-0.9.1.md`; 0.9.0 in `release-0.9.0.md`). Windows builds come from GitHub Actions.
+> **Status (2026-09-26):** implemented. The product is named **ValhallISC**; the Python package keeps the working title `irisfs`. Gates G0–G9 and G11 have passed on macOS (macFUSE **and** FUSE-T) and on Linux. G10 has passed on Windows: the packaged 0.9.1 `.exe` was tested by hand with WinFsp (profiles, mount, copy out and in).
+> - Release 0.9.1 is published on GitHub (https://github.com/m0nt0/ValhallISC/releases/tag/v0.9.1): signed and notarized DMGs for Apple silicon and Intel, Linux x86_64/aarch64 binaries, and the Windows `.exe` pair built by GitHub Actions (`doc/progress/release-0.9.1.md`; 0.9.0 in `release-0.9.0.md`).
+> - Still open: the Windows executables are not code-signed.
 >
 > Where the implementation deviates from this plan, the reason is in `doc/DECISIONS.md` (ADR-001 … ADR-010) and in the gate reports under `doc/progress/`. For users, see `README.md`, `doc/USAGE.md` and `doc/CLI.md`.
 
