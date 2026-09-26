@@ -6,7 +6,9 @@ name: Windows build
 on:
   workflow_dispatch:          # "Run workflow" button in the Actions tab
   push:
-    tags: ["v*"]              # every release tag
+    tags: ["v*"]              # every release tag (path filters do not apply to tags)
+    branches: [main]          # and every push to main that touches the build (paths below)
+    paths: ["src/**", "packaging/**", "scripts/build-windows.ps1", "pyproject.toml", ".github/workflows/windows.yml"]
   pull_request:
     paths: ["src/**", "packaging/**", "scripts/build-windows.ps1", "pyproject.toml", ".github/workflows/windows.yml"]
 
