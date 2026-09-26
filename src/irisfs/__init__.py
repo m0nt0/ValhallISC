@@ -1,6 +1,6 @@
 """ValhallISC: mount InterSystems IRIS code as a local filesystem (Python package: irisfs)."""
 
-__version__ = "0.1.0"
+__version__ = "0.9.0"
 
 
 def _git_sha() -> str:

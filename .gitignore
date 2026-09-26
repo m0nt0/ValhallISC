@@ -294,3 +294,7 @@ AuthKey_*.p8
 # our PyInstaller spec is hand-written source (the Python template above ignores *.spec)
 !packaging/valhallisc.spec
 .venv-*/
+
+# --- AI assistant local state (session history, local settings): never commit ---------------------------
+.claude/
+CLAUDE.local.md
