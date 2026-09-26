@@ -8,9 +8,9 @@ on:
   push:
     tags: ["v*"]              # every release tag (path filters do not apply to tags)
     branches: [main]          # and every push to main that touches the build (paths below)
-    paths: ["src/**", "packaging/**", "scripts/build-windows.ps1", "pyproject.toml", ".github/workflows/windows.yml"]
+    paths: ["src/**", "tests/**", "packaging/**", "scripts/build-windows.ps1", "pyproject.toml", ".github/workflows/windows.yml"]
   pull_request:
-    paths: ["src/**", "packaging/**", "scripts/build-windows.ps1", "pyproject.toml", ".github/workflows/windows.yml"]
+    paths: ["src/**", "tests/**", "packaging/**", "scripts/build-windows.ps1", "pyproject.toml", ".github/workflows/windows.yml"]
 
 jobs:
   build:
