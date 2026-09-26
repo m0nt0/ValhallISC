@@ -26,16 +26,16 @@ def test_macos_search_order(monkeypatch: pytest.MonkeyPatch) -> None:
         "/opt/homebrew/lib/libfuse.2.dylib",
         str(fuselib.MACFUSE_BUNDLE),
     }
-    monkeypatch.setattr(fuselib.Path, "exists", lambda self: str(self) in present)
+    monkeypatch.setattr(fuselib.Path, "exists", lambda self: self in {Path(x) for x in present})
     found = fuselib.find_library("Darwin")
     assert found is not None
-    assert found.path == "/opt/local/lib/libfuse.2.dylib" and found.problem is None
+    assert Path(found.path) == Path("/opt/local/lib/libfuse.2.dylib") and found.problem is None
 
 
 def test_macos_fuse_t_preferred(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("FUSE_LIBRARY_PATH", raising=False)
     present = {"/usr/local/lib/libfuse-t.dylib", "/opt/local/lib/libfuse.2.dylib"}
-    monkeypatch.setattr(fuselib.Path, "exists", lambda self: str(self) in present)
+    monkeypatch.setattr(fuselib.Path, "exists", lambda self: self in {Path(x) for x in present})
     found = fuselib.find_library("Darwin")
     assert found is not None and found.kind == "FUSE-T"
 
@@ -43,7 +43,7 @@ def test_macos_fuse_t_preferred(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_macfuse_without_bundle_flags_problem(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("FUSE_LIBRARY_PATH", raising=False)
     present = {"/usr/local/lib/libfuse.2.dylib"}
-    monkeypatch.setattr(fuselib.Path, "exists", lambda self: str(self) in present)
+    monkeypatch.setattr(fuselib.Path, "exists", lambda self: self in {Path(x) for x in present})
     found = fuselib.find_library("Darwin")
     assert found is not None and found.problem and "macfuse.fs" in found.problem
 

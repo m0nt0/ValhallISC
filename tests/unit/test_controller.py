@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import platform
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -80,7 +81,7 @@ class Env:
     def __init__(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(fuselib, "find_library", lambda system=None: fuselib.FuseLibrary("libfuse3", "x"))
         self.store = ProfileStore(
-            tmp_path / "p.json", secrets=FileSecretStore(tmp_path / "s.json"), system="Linux"
+            tmp_path / "p.json", secrets=FileSecretStore(tmp_path / "s.json"), system=platform.system()
         )
         self.mgr = FakeManager()
         self.store.is_active = self.mgr.is_active

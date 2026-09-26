@@ -15,7 +15,7 @@ function Invoke-Step([string]$what, [scriptblock]$cmd, [switch]$warnOnly) {
     $ErrorActionPreference = "Stop"
     $out | Write-Host
     if ($code -eq 0) { return }
-    $tail = ($out | Select-Object -Last 25) -join "%0A"
+    $tail = ($out | Select-Object -Last 120) -join "%0A"
     if ($warnOnly) {
         if ($ci) { Write-Host "::warning title=$what failed (exit $code)::$tail" } else { Write-Warning "$what failed (exit $code)" }
         return
@@ -28,7 +28,7 @@ if (-not (Test-Path .venv\Scripts\python.exe)) { py -3.12 -m venv .venv }
 $py = ".venv\Scripts\python.exe"
 Invoke-Step "pip upgrade" { & $py -m pip install --quiet --upgrade pip }
 Invoke-Step "install dependencies" { & $py -m pip install --quiet -e ".[gui,dev,build]" }
-Invoke-Step "unit tests" { & $py -m pytest -q tests\unit } -warnOnly   # building anyway; CI gates on them separately
+Invoke-Step "unit tests" { & $py -m pytest -q --tb=line tests\unit } -warnOnly   # building anyway; CI gates on them separately
 
 $sha = (git rev-parse --short HEAD 2>$null)
 if (-not $sha) { $sha = "unknown" }

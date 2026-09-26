@@ -32,7 +32,7 @@ jobs:
 
       - name: Unit tests must pass on Windows
         shell: pwsh
-        run: .venv\Scripts\python -m pytest -q tests\unit
+        run: .venv\Scripts\python -m pytest -q --tb=short tests\unit
 
       - name: Smoke test the console executable
         shell: pwsh

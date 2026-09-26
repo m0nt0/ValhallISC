@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import platform
 import sys
 import threading
 import time
@@ -45,7 +46,8 @@ class Recorder:
 
 @pytest.fixture
 def setup(tmp_path: Path) -> tuple[ProfileStore, MountManager, Recorder, list[tuple[str, bool]]]:
-    store = ProfileStore(tmp_path / "p.json", secrets=FileSecretStore(tmp_path / "s.json"), system="Linux")
+    system = platform.system()  # tmp_path follows the real platform's path rules
+    store = ProfileStore(tmp_path / "p.json", secrets=FileSecretStore(tmp_path / "s.json"), system=system)
     unmounts: list[tuple[str, bool]] = []
 
     def fake_unmount(path: str, system: str, *, force: bool = False, timeout: float = 15) -> UnmountResult:
@@ -53,7 +55,7 @@ def setup(tmp_path: Path) -> tuple[ProfileStore, MountManager, Recorder, list[tu
         return UnmountResult(True, False, "")
 
     mgr = MountManager(
-        store, worker_command=FAKE, system="Linux", mount_timeout=2, stop_timeout=1, unmount_fn=fake_unmount
+        store, worker_command=FAKE, system=system, mount_timeout=2, stop_timeout=1, unmount_fn=fake_unmount
     )
     rec = Recorder()
     mgr.subscribe(rec)
@@ -199,6 +201,7 @@ def test_subscriber_exceptions_do_not_break_manager(setup: Any, tmp_path: Path) 
     mgr.unmount_all(wait=10)
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows has no mount table (os.path.ismount)")
 def test_irisfs_mount_parsing(monkeypatch: pytest.MonkeyPatch) -> None:
     import subprocess
 
