@@ -1,1 +1,1 @@
-GIT_SHA = "5686f42-dirty"
+GIT_SHA = "6210192"

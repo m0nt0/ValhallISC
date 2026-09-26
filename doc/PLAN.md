@@ -2,7 +2,7 @@
 
 > **Status (2026-09-26):** implemented. The product is named **ValhallISC**; the Python package keeps the working title `irisfs`. Gates G0–G9 and G11 have passed on macOS (macFUSE **and** FUSE-T) and on Linux. Still open:
 > - the Windows validation of G10 (the tray app works on Windows from source; the packaged `.exe` is not yet validated);
-> - a notarized macOS release (the pipeline is ready and waits for a Developer ID certificate, see `doc/RELEASING.md`).
+> - macOS 0.1.0 is released as a signed and notarized DMG (`doc/progress/release-0.1.0-macos.md`); an Intel/universal build is optional.
 >
 > Where the implementation deviates from this plan, the reason is in `doc/DECISIONS.md` (ADR-001 … ADR-010) and in the gate reports under `doc/progress/`. For users, see `README.md`, `doc/USAGE.md` and `doc/CLI.md`.
 
