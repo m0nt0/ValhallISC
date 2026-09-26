@@ -154,7 +154,11 @@ class VirtualFS:
         self._ns_info: dict[str, NamespaceInfo] = {}
         self._namespaces: tuple[float, tuple[str, ...]] | None = None
         self.trees = TreeCache(
-            self._load_docs, ttl=self.opts.tree_ttl, case_insensitive=self.opts.case_insensitive, clock=clock
+            self._load_docs,
+            ttl=self.opts.tree_ttl,
+            case_insensitive=self.opts.case_insensitive,
+            clock=clock,
+            wall_clock=wall_clock,
         )
         self.content = ContentCache(self.opts.cache_bytes)
         self._handles: dict[int, Handle] = {}
@@ -241,8 +245,10 @@ class VirtualFS:
         ]:
             del self._buffers[p]  # empty placeholder that was never written
 
-    def _dir_attr(self) -> Attr:
-        return Attr(True, 0, self.mounted_at, 0o555 if self.opts.read_only else 0o755)
+    def _dir_attr(self, ns: str | None = None) -> Attr:
+        # a namespace's folders carry the time its listing last changed (see TreeCache.changed_at)
+        mtime = (self.trees.changed_at(ns) if ns else None) or self.mounted_at
+        return Attr(True, 0, mtime, 0o555 if self.opts.read_only else 0o755)
 
     def _file_attr(self, size: int, mtime: float) -> Attr:
         return Attr(False, size, mtime, 0o444 if self.opts.read_only else 0o644)
@@ -260,7 +266,7 @@ class VirtualFS:
                 return self._file_attr(len(self._ghosts[path].data), self._wall())
         ns, node = self._resolve(path)
         if node is None or isinstance(node, DirNode):
-            return self._dir_attr()
+            return self._dir_attr(ns)
         assert ns is not None
         doc = node.doc
         size = self.content.size(

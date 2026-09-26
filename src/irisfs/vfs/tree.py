@@ -84,14 +84,20 @@ class TreeCache:
         ttl: float = 10.0,
         case_insensitive: bool = False,
         clock: Clock = time.monotonic,
+        wall_clock: Clock = time.time,
     ) -> None:
         self._loader = loader
         self.ttl = ttl
         self.case_insensitive = case_insensitive
         self._clock = clock
+        self._wall = wall_clock
         self._lock = threading.Lock()
         self._ns_locks: dict[str, threading.Lock] = {}
         self._trees: dict[str, tuple[float, DirNode]] = {}
+        # Per namespace: (listing signature, wall time it last changed). The change time is used as the mtime
+        # of the namespace's folders: NFS-based FUSE (FUSE-T) keeps cached lookups - including "not found"
+        # answers given during an outage - until a folder's mtime moves.
+        self._changed: dict[str, tuple[int | None, float]] = {}
 
     def get(self, ns: str) -> DirNode:
         with self._lock:
@@ -100,9 +106,28 @@ class TreeCache:
             cached = self._trees.get(ns)
             if cached is not None and self._clock() - cached[0] < self.ttl:
                 return cached[1]
-            tree = build_tree(self._loader(ns), case_insensitive=self.case_insensitive)
+            try:
+                docs = self._loader(ns)
+            except Exception:
+                # a failed load counts as a change: the next successful one must bump the mtime again
+                previous = self._changed.get(ns)
+                self._changed[ns] = (None, previous[1] if previous else self._wall())
+                raise
+            signature = hash(tuple(sorted((d.name, d.ts) for d in docs)))
+            previous = self._changed.get(ns)
+            if previous is None or previous[0] != signature:
+                changed = self._wall()
+                if previous is not None and changed <= previous[1]:
+                    changed = previous[1] + 1.0  # strictly increasing even within the same second
+                self._changed[ns] = (signature, changed)
+            tree = build_tree(docs, case_insensitive=self.case_insensitive)
             self._trees[ns] = (self._clock(), tree)
             return tree
+
+    def changed_at(self, ns: str) -> float | None:
+        """Wall time the namespace's listing last changed (None before the first load)."""
+        entry = self._changed.get(ns)
+        return entry[1] if entry else None
 
     def invalidate(self, ns: str | None = None) -> None:
         with self._lock:

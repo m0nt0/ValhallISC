@@ -102,3 +102,40 @@ def test_failed_load_is_not_left_in_flight() -> None:
         cache.get(("U", "A.cls", "t"), boom)
     assert not cache.has_size(("U", "A.cls", "t"))
     assert cache.get(("U", "A.cls", "t"), lambda: b"ok") == b"ok"
+
+
+def test_changed_at_moves_only_on_real_change_or_recovery() -> None:
+    now = [0.0]
+    wall = [1000.0]
+    docs = [d("A.cls", "t1")]
+    fail = [False]
+
+    def loader(ns: str) -> list[DocInfo]:
+        if fail[0]:
+            raise ConnectionError("down")
+        return list(docs)
+
+    cache = TreeCache(loader, ttl=10, clock=lambda: now[0], wall_clock=lambda: wall[0])
+    assert cache.changed_at("U") is None
+    cache.get("U")
+    first = cache.changed_at("U")
+    assert first == 1000.0
+    now[0] += 11
+    wall[0] += 11
+    cache.get("U")  # same listing: unchanged
+    assert cache.changed_at("U") == first
+    docs.append(d("B.cls", "t1"))
+    now[0] += 11
+    wall[0] += 11
+    cache.get("U")  # new document: moves
+    second = cache.changed_at("U")
+    assert second is not None and second > first
+    fail[0] = True  # outage
+    now[0] += 11
+    with contextlib.suppress(ConnectionError):
+        cache.get("U")
+    fail[0] = False
+    now[0] += 11
+    cache.get("U")  # recovered with the same listing: must still move (NFS negative-cache invalidation)
+    third = cache.changed_at("U")
+    assert third is not None and third > second

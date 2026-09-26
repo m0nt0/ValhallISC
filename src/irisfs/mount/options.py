@@ -34,7 +34,16 @@ def mount_options(
             # Not "noapplexattr": it makes the kernel refuse com.apple.* xattrs with EPERM, and Finder
             # aborts copies with a permission error. VirtualFS accepts xattrs as no-ops instead.
             opts.update(noappledouble=True, local=True)
+        elif lib is not None and lib.kind == "FUSE-T":
+            opts["location"] = "ValhallISC"  # Finder groups FUSE-T volumes under this name, not "localhost"
+            # FUSE-T serves the volume over NFS; the macOS NFS client's attribute cache kept "not found"
+            # answers given during a server outage indefinitely. No measurable cost (our own caches answer).
+            opts["noattrcache"] = True
     elif system == "Windows":
         # WinFsp-FUSE: map file ownership to the current user. [VERIFY on Windows]
         opts.update(uid=-1, gid=-1, FileSystemName="IRISFS", volname=profile_name[:32] or "IRIS")
+    # Power users / debugging: extra options, e.g. VALHALLISC_FUSE_OPTIONS="noattrcache,rwsize=65536"
+    for item in filter(None, (x.strip() for x in os.environ.get("VALHALLISC_FUSE_OPTIONS", "").split(","))):
+        key, sep, value = item.partition("=")
+        opts[key] = value if sep else True
     return opts

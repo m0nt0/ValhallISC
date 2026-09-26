@@ -1,3 +1,5 @@
+import pytest
+
 from irisfs.mount.fuselib import FuseLibrary
 from irisfs.mount.options import mount_options
 
@@ -24,6 +26,13 @@ def test_macos_fuse_t_gets_no_macfuse_only_options() -> None:
         mount_point="/x/y",
     )
     assert o["ro"] and o["volname"] == "y" and "local" not in o
+    assert o["noattrcache"] and o["location"] == "ValhallISC"  # FUSE-T specifics
+
+
+def test_extra_options_from_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("VALHALLISC_FUSE_OPTIONS", "rwsize=65536, nfc")
+    o = mount_options("Linux", FUSE3, profile_name="P", read_only=False, mount_point="/m")
+    assert o["rwsize"] == "65536" and o["nfc"] is True
 
 
 def test_linux_options() -> None:

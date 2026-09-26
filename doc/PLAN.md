@@ -1,8 +1,8 @@
 # IRISFS (ValhallISC): implementation plan
 
-> **Status (2026-09-25):** implemented. The product is named **ValhallISC**; the Python package keeps the working title `irisfs`. Gates G0–G7, G9 and G11 have passed on macOS and Linux. Two items still need the user:
-> - the manual macOS checklist of G8 (`doc/progress/G8-manual.md`);
-> - the Windows validation of G10 (the tray app works on Windows from source; the packaged `.exe` is not yet validated).
+> **Status (2026-09-26):** implemented. The product is named **ValhallISC**; the Python package keeps the working title `irisfs`. Gates G0–G9 and G11 have passed on macOS (macFUSE **and** FUSE-T) and on Linux. Still open:
+> - the Windows validation of G10 (the tray app works on Windows from source; the packaged `.exe` is not yet validated);
+> - a notarized macOS release (the pipeline is ready and waits for a Developer ID certificate, see `doc/RELEASING.md`).
 >
 > Where the implementation deviates from this plan, the reason is in `doc/DECISIONS.md` (ADR-001 … ADR-010) and in the gate reports under `doc/progress/`. For users, see `README.md`, `doc/USAGE.md` and `doc/CLI.md`.
 
@@ -785,7 +785,7 @@ Clean up after every test: delete the created items and restore the modified see
 | G5 | Read-only mount end-to-end, performance | macOS + Linux + IRIS + FUSE | passed, including the manual Finder check (`G5.md`) |
 | G6 | Import by copying end-to-end | macOS + Linux + IRIS + FUSE | passed, including the manual Finder drag-in (`G6.md`) |
 | G7 | Multi-mount orchestration, crash and busy handling | macOS + Linux | passed (`G7.md`) |
-| G8 | Tray and Profiles GUI | Linux (Xvfb) + macOS manual | automated part passed; macOS manual checklist not yet reported (`G8-manual.md`); reworked after design review 1 (`design-review-1.md`) |
+| G8 | Tray and Profiles GUI | Linux (Xvfb) + macOS manual | passed: automated suites, plus the macOS manual checklist confirmed by the user (`G8-manual.md`); reworked after design review 1 (`design-review-1.md`) |
 | G9 | Packaged binaries | macOS `.app` + CLI, Linux onefile | passed for macOS and Linux (`G9.md`) |
 | G10 | Windows | the user | from source: mount, import and GUI verified (`G10-windows-first-run.md`); packaged `.exe` pending |
 | G11 | Headless CLI (`--batch`, profiles, connect and disconnect, shared mount registry) | macOS + Linux | passed (`G11.md`) |

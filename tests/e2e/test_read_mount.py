@@ -127,10 +127,12 @@ def test_e2e14_server_outage_eio_then_recovers(
     assert exc.value.errno in (errno.EIO, errno.ENOENT)
     assert time.monotonic() - started < 15
     proxy.up()
-    deadline = time.monotonic() + 15
+    recovery_started = time.monotonic()
+    deadline = time.monotonic() + 120
     while True:
         try:
             assert b"Test.B" in (m.path / "TESTNS/Test/B.cls.xml").read_bytes()
+            print(f"\nrecovered after {time.monotonic() - recovery_started:.1f}s")
             break
         except OSError:
             if time.monotonic() > deadline:

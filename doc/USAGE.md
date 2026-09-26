@@ -13,7 +13,7 @@ It runs as an icon in the menu bar (macOS) or the system tray (Windows, Linux), 
 
 | System | Install |
 |---|---|
-| macOS | [FUSE-T](https://www.fuse-t.org) (no kernel extension) or [macFUSE](https://macfuse.github.io). With macFUSE, approve the system extension when macOS asks. |
+| macOS | [FUSE-T](https://www.fuse-t.org) (recommended: no kernel extension, nothing to approve) or [macFUSE](https://macfuse.github.io) (approve its system extension when macOS asks). Both are tested. With FUSE-T, mounted servers appear in Finder under **ValhallISC** in the sidebar's Locations. |
 | Windows | [WinFsp](https://winfsp.dev/rel/), e.g. `winget install WinFsp.WinFsp` |
 | Linux | the `fuse3` package, e.g. `sudo apt install fuse3` |
 
@@ -148,6 +148,8 @@ valhallisc --batch --disconnect Dev
 | An import shows "import failed" | The file isn't an IRIS XML export, it's malformed, or the user has no write permission (IRIS error #5883). |
 | The macOS volume isn't in the Finder sidebar | Finder → Settings → Sidebar → tick the items under Locations. |
 | The tray icon is missing on Linux (GNOME) | Install and enable the AppIndicator extension. |
+
+**Advanced:** extra FUSE mount options can be passed with the `VALHALLISC_FUSE_OPTIONS` environment variable (comma-separated, e.g. `rwsize=65536`).
 
 **Logs:** `valhallisc doctor` prints the log folder. It contains `gui.log` for the app and one `worker-*.log` per mounted server. Start the app or the command line with `-v` for more detail.
 

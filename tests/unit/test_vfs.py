@@ -526,3 +526,14 @@ def test_empty_placeholder_expires_and_can_be_deleted(env: Env, fake: FakeAtelie
     env.now[0] += GHOST_TTL + 1
     assert "e2.xml" not in env.fs.readdir("/USER")
     assert fake.calls["import_xml"] == 0
+
+
+def test_namespace_folder_mtime_follows_listing_changes(env: Env, fake: FakeAtelier) -> None:
+    before = env.fs.getattr("/USER/Demo").mtime
+    fake.add_doc("USER", "Demo.Extra.cls", "<Description>x</Description>")
+    env.fs.refresh("USER")
+    import time as _t
+
+    _t.sleep(0.01)
+    after = env.fs.getattr("/USER/Demo").mtime
+    assert after > before

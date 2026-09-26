@@ -297,8 +297,9 @@ def test_e2e28b_com_apple_xattrs_accepted(mnt: MountedFs, tmp_path: Path) -> Non
     target.touch()  # empty placeholder, like Finder's first step
     try:
         for name in ("com.apple.quarantine", "com.apple.FinderInfo", "com.apple.provenance"):
-            value = "0" * 64 if name == "com.apple.FinderInfo" else "x"
-            r = subprocess.run(["xattr", "-w", name, value, str(target)], capture_output=True, text=True)
+            # FinderInfo is exactly 32 bytes (-wx = hex); FUSE-T rightly refuses other sizes (ERANGE)
+            args = ["-wx", name, "00" * 32] if name == "com.apple.FinderInfo" else ["-w", name, "x"]
+            r = subprocess.run(["xattr", *args, str(target)], capture_output=True, text=True)
             assert r.returncode == 0, (name, r.stderr)
     finally:
         target.unlink(missing_ok=True)

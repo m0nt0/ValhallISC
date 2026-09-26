@@ -11,6 +11,7 @@ import contextlib
 import logging
 import os
 import platform
+import signal
 import sys
 import threading
 import time
@@ -36,6 +37,10 @@ EXIT_OK = 0
 EXIT_CONFIG = 2
 EXIT_AUTH = 3
 EXIT_MOUNT = 4
+
+
+def _ignore_signal(signum: int, frame: object) -> None:
+    """No-op signal handler (see Worker.run: SIGPIPE)."""
 
 
 @dataclass
@@ -140,6 +145,12 @@ class Worker:
         ops = make_operations(fuse, vfs, on_init=on_init)
         opts = self.fuse_options()
         code = EXIT_OK
+        if hasattr(signal, "SIGPIPE"):
+            # libfuse (and FUSE-T) resets SIGPIPE to the default action at teardown whenever it is SIG_IGN -
+            # which Python sets at startup - even though libfuse never installed it. FUSE-T then writes to its
+            # closed NFS socket and the process died with SIGPIPE on every unmount. A real (no-op) handler is
+            # left alone by that teardown, so the write just fails with EPIPE.
+            signal.signal(signal.SIGPIPE, _ignore_signal)
         try:
             fuse.FUSE(ops, self.mount_path, **opts)
         except RuntimeError as e:

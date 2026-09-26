@@ -133,3 +133,15 @@
 - **Not yet done:**
   - notarization: waiting for a Developer ID certificate and a notarytool profile;
   - an Intel or universal2 build: the current build is arm64, because the Python is arm64.
+
+## ADR-013: FUSE-T support (verified 2026-09-26)
+- **Result:** with FUSE-T 1.2.7 (the NFS backend) the full macOS e2e suite passes (37/37). FUSE-T is preferred when both drivers are installed. The first run found three FUSE-T-specific problems:
+  1. **The worker died with SIGPIPE on every unmount** (exit -13).
+     - libfuse (and FUSE-T) resets SIGPIPE to the default action at teardown whenever it's `SIG_IGN`. Python sets `SIG_IGN` at startup, but libfuse never installed it itself.
+     - FUSE-T then writes to its closed NFS socket.
+     - **Fix:** the worker installs a no-op Python handler for SIGPIPE, which the teardown leaves alone. Blocking the signal wasn't enough, because FUSE-T changes the thread signal masks.
+  2. **"Not found" persisted after an IRIS outage.**
+     - The macOS NFS client kept a failed lookup cached, with no retry even 2 minutes later.
+     - **Fix:** mount option `noattrcache` (no measurable cost: `ls -lR` of 2 000 classes takes 1.32 s either way). Namespace folders also carry their listing's change time as mtime (`TreeCache.changed_at`), which moves on content changes and after a failed load, so NFS clients revalidate.
+  3. **An xattr test wrote a 64-byte FinderInfo.** It must be exactly 32 bytes. FUSE-T rightly refuses other sizes (ERANGE), while macFUSE had accepted it. This was a test bug.
+- **Also:** `location=ValhallISC`, so Finder groups FUSE-T volumes under "ValhallISC" and not "localhost". `VALHALLISC_FUSE_OPTIONS` passes extra mount options, for debugging.
