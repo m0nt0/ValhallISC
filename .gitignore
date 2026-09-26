@@ -293,3 +293,4 @@ AuthKey_*.p8
 
 # our PyInstaller spec is hand-written source (the Python template above ignores *.spec)
 !packaging/valhallisc.spec
+.venv-*/

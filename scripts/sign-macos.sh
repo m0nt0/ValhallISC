@@ -11,16 +11,19 @@
 #                 xcrun notarytool store-credentials valhallisc-notary --apple-id you@example.com \
 #                     --team-id TEAMID --password <app-specific password>
 #                 Without it the app is signed but not notarized (Gatekeeper will still warn).
-# Output: dist/ValhallISC.app (signed[, notarized, stapled]) and dist/ValhallISC-<version>-macos-<arch>.dmg
+# Output: dist/macos-<arch>/ValhallISC.app (signed[, notarized, stapled]) and dist/ValhallISC-<version>-macos-<arch>.dmg
+# Intel build on Apple silicon: arch -x86_64 env PYTHON=.venv-x86_64/bin/python scripts/sign-macos.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 : "${SIGN_IDENTITY:?set SIGN_IDENTITY (see the header of this script)}"
 NOTARY_PROFILE=${NOTARY_PROFILE:-}
-APP=dist/ValhallISC.app
 ENT=packaging/entitlements.plist
 VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml)
-ARCH=$(uname -m)
+PY=${PYTHON:-.venv/bin/python}
+ARCH=$("$PY" -c 'import platform; print(platform.machine())')   # arm64, or x86_64 with PYTHON=.venv-x86_64/...
+OUT="dist/macos-${ARCH}"
+APP="$OUT/ValhallISC.app"
 DMG="dist/ValhallISC-${VERSION}-macos-${ARCH}.dmg"
 
 [ "${1:-}" = "--no-build" ] || scripts/build-macos.sh
@@ -50,7 +53,7 @@ notarize() {  # $1 = file to submit
 
 if [ -n "$NOTARY_PROFILE" ]; then
   echo "== notarizing the app"
-  ZIP=dist/ValhallISC-notarize.zip
+  ZIP="$OUT/ValhallISC-notarize.zip"
   rm -f "$ZIP"; ditto -c -k --keepParent "$APP" "$ZIP"
   notarize "$ZIP"
   xcrun stapler staple "$APP"
@@ -63,7 +66,7 @@ fi
 echo "== building the DMG"
 STAGE=$(mktemp -d)
 cp -R "$APP" "$STAGE/"
-cp dist/valhallisc "$STAGE/valhallisc"          # CLI wrapper (finds the app next to it or in /Applications)
+cp "$OUT/valhallisc" "$STAGE/valhallisc"          # CLI wrapper (finds the app next to it or in /Applications)
 cp LICENSE "$STAGE/LICENSE.txt"
 ln -s /Applications "$STAGE/Applications"
 rm -f "$DMG"

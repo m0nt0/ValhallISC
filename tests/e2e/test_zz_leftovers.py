@@ -14,7 +14,7 @@ pytestmark = [pytest.mark.fuse]
 
 def _workers() -> list[str]:
     # Anchored: `python -m irisfs worker` or a frozen `.../irisfs worker` - not shells that merely mention it.
-    pattern = r"(-m irisfs|/irisfs) worker$"
+    pattern = r"(-m irisfs|/irisfs|/ValhallISC) worker$"  # python, Linux binary, macOS app
     out = subprocess.run(["pgrep", "-fl", pattern], capture_output=True, text=True).stdout
     return [line for line in out.splitlines() if line.strip()]
 

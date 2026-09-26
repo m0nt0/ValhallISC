@@ -51,9 +51,31 @@ The entitlements, with the reason for each:
 
 With an **Apple Development** identity the same script produces a signed, hardened, *not notarizable* build. That's useful to check the entitlements on your own Mac, but it's not for distribution.
 
-### Architectures
+### Architectures (Apple silicon and Intel)
 
-The build has the architecture of the Python used: `arm64` with the MacPorts or Homebrew Python on Apple silicon. For Intel Macs, build on an Intel Mac, or with an x86_64 Python under Rosetta (`arch -x86_64`). A `universal2` build needs a universal2 Python (python.org installer) and a universal2 wxPython.
+The build has the architecture of the Python that runs it. Output goes to `dist/macos-<arch>/`.
+- **Apple silicon:** `.venv` (arm64).
+- **Intel:** an x86_64 Python run under Rosetta. One-time setup, with no installer and no sudo:
+  ```sh
+  .venv/bin/pip install uv
+  .venv/bin/uv python install cpython-3.12-macos-x86_64-none
+  PYX=$(.venv/bin/uv python find cpython-3.12-macos-x86_64-none)
+  arch -x86_64 "$PYX" -m venv .venv-x86_64
+  arch -x86_64 .venv-x86_64/bin/pip install -e ".[gui,dev,build]"
+  ```
+  Then sign and notarize with `arch -x86_64 env PYTHON=.venv-x86_64/bin/python scripts/sign-macos.sh`. FUSE-T ships a universal library, so the Intel app can even be tested on Apple silicon under Rosetta.
+
+## All platforms in one go
+
+```sh
+SIGN_IDENTITY="Developer ID Application: <Name> (<TEAMID>)" NOTARY_PROFILE=valhallisc-notary scripts/release.sh
+```
+
+It refuses to run with uncommitted changes, so every artifact carries the same git revision. It:
+1. builds, signs and notarizes the macOS arm64 and x86_64 DMGs;
+2. builds the Linux x86_64 binary (under emulation on Apple silicon) and the aarch64 binary;
+3. smoke-tests both Linux binaries on clean containers of their own architecture;
+4. collects everything in `dist/release/<version>/` with `SHA256SUMS`.
 
 ## Linux
 
@@ -61,4 +83,6 @@ The build has the architecture of the Python used: `arm64` with the MacPorts or 
 
 ## Windows
 
-`scripts\build-windows.ps1` produces `dist\ValhallISC.exe` and `dist\valhallisc-cli.exe`. Signing them with an Authenticode certificate (`signtool sign /fd SHA256 /tr <timestamp url> /td SHA256 …`) avoids SmartScreen warnings. That isn't automated yet.
+A Mac can't build for Windows: Rosetta only translates macOS programs, and Docker Desktop only runs Linux containers. A Wine cross-build would be untestable, because WinFsp is a kernel driver. Instead, the GitHub Actions workflow `.github/workflows/windows.yml` builds on a real Windows machine. It runs on every `v*` tag, on pull requests that touch the code, and on demand (Actions → Windows build → Run workflow). It runs the unit tests on Windows, smoke-tests the CLI, and uploads `ValhallISC.exe` and `valhallisc-cli.exe` as an artifact.
+
+On a Windows machine, `scripts\build-windows.ps1` produces `dist\ValhallISC.exe` and `dist\valhallisc-cli.exe`. Signing them with an Authenticode certificate (`signtool sign /fd SHA256 /tr <timestamp url> /td SHA256 …`) avoids SmartScreen warnings. That isn't automated yet.

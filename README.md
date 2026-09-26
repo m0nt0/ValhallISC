@@ -43,6 +43,19 @@ cp -R ~/ValhallISC/Dev\ IRIS/USER backup/                   # back up a namespac
 | Windows | [WinFsp](https://winfsp.dev/rel/) |
 | Linux | `fuse3`, glibc 2.39 or newer (for the packaged binary), a desktop with a system tray for the GUI |
 
+## Downloads
+
+The downloads are on the GitHub **Releases** page:
+
+| Platform | File |
+|---|---|
+| macOS, Apple silicon | `ValhallISC-<version>-macos-arm64.dmg` (signed and notarized) |
+| macOS, Intel | `ValhallISC-<version>-macos-x86_64.dmg` (signed and notarized) |
+| Linux x86_64 / ARM64 | `valhallisc-<version>-linux-x86_64` / `-linux-aarch64` (one file; glibc 2.39 or newer) |
+| Windows | `ValhallISC.exe` + `valhallisc-cli.exe`, built by the *Windows build* GitHub Action |
+
+`SHA256SUMS` lists the checksums.
+
 ## Quick start
 
 1. Install the FUSE driver for your system. If it's missing, ValhallISC tells you at startup how to install it on *your* machine: Homebrew or MacPorts on macOS; apt, dnf, pacman, emerge, zypper, apk… by Linux distribution; winget or the download page on Windows.

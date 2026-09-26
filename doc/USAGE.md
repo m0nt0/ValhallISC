@@ -45,9 +45,9 @@ Run `valhallisc doctor` to check a machine. It lists the FUSE driver found, the 
 
 | System | What you get | How to start it |
 |---|---|---|
-| macOS | `ValhallISC-<version>-macos-<arch>.dmg` (the app, the `valhallisc` command line, the license) | Open the DMG and drag **ValhallISC** onto **Applications**. Copy `valhallisc` somewhere in your `PATH` if you want the command line. Release builds are signed and notarized. For a build that isn't notarized: right-click → Open the first time, or run `xattr -dr com.apple.quarantine /Applications/ValhallISC.app`. |
+| macOS | `ValhallISC-<version>-macos-arm64.dmg` (Apple silicon) or `…-macos-x86_64.dmg` (Intel), containing the app, the `valhallisc` command line and the license | Open the DMG and drag **ValhallISC** onto **Applications**. Copy `valhallisc` somewhere in your `PATH` if you want the command line. Release builds are signed and notarized. For a build that isn't notarized: right-click → Open the first time, or run `xattr -dr com.apple.quarantine /Applications/ValhallISC.app`. |
 | Windows | `ValhallISC.exe` (tray app) and `valhallisc-cli.exe` (command line) | Double-click `ValhallISC.exe`. |
-| Linux | `valhallisc-linux-<arch>` (one file) | Make it executable and run it without arguments for the tray app. It needs glibc 2.39 or newer, `fuse3`, and a desktop with a system tray. On GNOME, enable the *AppIndicator* extension. |
+| Linux | `valhallisc-<version>-linux-x86_64` or `…-linux-aarch64` (one file) | Make it executable and run it without arguments for the tray app. It needs glibc 2.39 or newer, `fuse3`, and a desktop with a system tray. On GNOME, enable the *AppIndicator* extension. |
 
 On macOS the icon appears in the menu bar, not in the Dock. It's dimmed while nothing is mounted and solid when something is. Only one copy of the app runs at a time.
 

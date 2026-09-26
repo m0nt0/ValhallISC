@@ -1,14 +1,25 @@
 #!/usr/bin/env bash
-# Build dist/valhallisc-linux-<arch> inside the linux-test image (Ubuntu 24.04, distro wxPython).
-# The binary needs glibc >= 2.39 (Ubuntu 24.04 / Debian 13 or newer) plus fuse3 and GTK3 at runtime.
+# Build the Linux binary in Docker (Ubuntu 24.04 base, distro wxPython).
+#   scripts/build-linux.sh [amd64|arm64]     (default: this machine's architecture)
+# Output: dist/valhallisc-linux-<x86_64|aarch64>
+# Runtime needs glibc >= 2.39 (Ubuntu 24.04 / Debian 13 or newer) and fuse3; GTK3 for the tray app.
+# A foreign architecture is built under emulation (Docker Desktop / binfmt + QEMU): slow but works.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+case "${1:-$(uname -m)}" in
+  amd64|x86_64)  PLATFORM=linux/amd64; ARCH=x86_64 ;;
+  arm64|aarch64) PLATFORM=linux/arm64; ARCH=aarch64 ;;
+  *) echo "unknown architecture: $1" >&2; exit 2 ;;
+esac
 source scripts/_build_info.sh
-docker compose -f docker/docker-compose.yml run --rm -T --no-deps linux-test bash -c '
+IMAGE="irisfs-linux-test:${ARCH}"
+docker build -q --platform "$PLATFORM" -t "$IMAGE" docker/linux-test >/dev/null
+docker run --rm --platform "$PLATFORM" -v "$PWD:/work" -w /work "$IMAGE" bash -c '
   set -e
   pip install -q "pyinstaller>=6" >/dev/null
-  python -m PyInstaller --noconfirm --clean --distpath /tmp/dist --workpath /tmp/build packaging/valhallisc.spec
-  mkdir -p dist && cp /tmp/dist/valhallisc "dist/valhallisc-linux-$(uname -m)"
-  chown -R '"$(id -u):$(id -g)"' dist
+  python -m PyInstaller --noconfirm --clean --distpath /tmp/dist --workpath /tmp/build packaging/valhallisc.spec \
+    >/tmp/pyi.log 2>&1 || { tail -40 /tmp/pyi.log; exit 1; }
+  mkdir -p dist && cp /tmp/dist/valhallisc "dist/valhallisc-linux-'"$ARCH"'"
+  chown '"$(id -u):$(id -g)"' "dist/valhallisc-linux-'"$ARCH"'"
 '
-ls -la dist
+ls -la "dist/valhallisc-linux-${ARCH}"

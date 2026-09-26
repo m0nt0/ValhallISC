@@ -1,0 +1,47 @@
+# Builds ValhallISC for Windows on a real Windows machine (a Mac cannot: Rosetta only translates macOS
+# programs and Docker Desktop only runs Linux containers). Runs the unit tests on Windows, then uploads
+# ValhallISC.exe (tray app) and valhallisc-cli.exe (command line) as a downloadable artifact.
+name: Windows build
+
+on:
+  workflow_dispatch:          # "Run workflow" button in the Actions tab
+  push:
+    tags: ["v*"]              # every release tag
+  pull_request:
+    paths: ["src/**", "packaging/**", "scripts/build-windows.ps1", "pyproject.toml", ".github/workflows/windows.yml"]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0      # the build records the git revision
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build (venv, unit tests, PyInstaller)
+        shell: pwsh
+        run: |
+          py -3.12 -m venv .venv
+          ./scripts/build-windows.ps1
+
+      - name: Unit tests must pass on Windows
+        shell: pwsh
+        run: .venv\Scripts\python -m pytest -q tests\unit
+
+      - name: Smoke test the console executable
+        shell: pwsh
+        run: |
+          dist\valhallisc-cli.exe --version
+          dist\valhallisc-cli.exe doctor; exit 0   # no WinFsp on the runner: doctor reports it, that's fine
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ValhallISC-windows-x86_64
+          path: |
+            dist/ValhallISC.exe
+            dist/valhallisc-cli.exe
+            LICENSE

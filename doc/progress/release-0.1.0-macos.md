@@ -7,7 +7,7 @@ SHA-256 `185a300460d604902b9fe0da9072f5feaf75da5f9796cc9aafad09ccac11e25f`
 
 | Check | Result |
 |---|---|
-| Signed with | Developer ID, hardened runtime, secure timestamp |
+| Signed with | a Developer ID Application certificate, hardened runtime, secure timestamp |
 | App notarization | Accepted; ticket stapled (`stapler validate`: worked) |
 | DMG notarization | Accepted; ticket stapled |
 | Gatekeeper, DMG **as downloaded** (quarantine attribute set) | `accepted, source=Notarized Developer ID` |
