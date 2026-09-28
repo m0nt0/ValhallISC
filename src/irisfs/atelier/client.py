@@ -22,7 +22,14 @@ from irisfs.atelier.errors import (
     ServerError,
     UnsupportedServer,
 )
-from irisfs.atelier.models import DatabaseInfo, DocInfo, ImportResult, NamespaceInfo, ServerInfo
+from irisfs.atelier.models import (
+    DatabaseInfo,
+    DocInfo,
+    FolderEntry,
+    ImportResult,
+    NamespaceInfo,
+    ServerInfo,
+)
 
 log = logging.getLogger(__name__)
 
@@ -30,6 +37,17 @@ MIN_API = 7  # action/xml/export and action/xml/load appeared in v7
 _ROUTINE_EXTS = {"MAC", "INT", "INC", "BAS", "MVB", "MVI"}
 _NOT_FOUND_CODES = {6308}  # ExportNoDef
 _FORBIDDEN_CODES = {5883}  # item mapped from a database without write permission
+
+# Parameters: Spec, Dir, OrderBy, SystemFiles, Flat, NotStudio, ShowGenerated, Filter, RoundTime, Mapped.
+# "Date" must be quoted: DATE is an SQL reserved word.
+_FOLDER_QUERY = 'SELECT Name, Type, "Date" FROM %Library.RoutineMgr_StudioOpenDialog(?,?,?,?,?,?,?,?,?,?)'
+_TYPE_PACKAGE = 9
+_TYPE_CSP_DIR = 10
+_TYPE_OTHER = 100  # lookup tables, DTL, BPL, HL7 schemas, ...: listed by full name at the root
+
+
+def _flag(value: bool) -> str:
+    return "1" if value else "0"
 
 
 def normalize_doc_name(name: str) -> str:
@@ -206,13 +224,15 @@ class AtelierClient:
         )
         return NamespaceInfo(name=str(content.get("name", ns)), databases=dbs)
 
-    def list_docs(self, ns: str, *, category: str = "*", generated: bool = False) -> list[DocInfo]:
-        r = self._request(
-            "GET",
-            self._versioned(ns, f"docnames/{category}"),
-            params={"generated": 1 if generated else 0},
-            idempotent=True,
-        )
+    def list_docs(
+        self, ns: str, *, category: str = "*", generated: bool = False, like: str | None = None
+    ) -> list[DocInfo]:
+        """Every document of a namespace (`docnames`). `like` narrows it with an SQL LIKE pattern
+        on the name ("Demo.Sub.%")."""
+        params: dict[str, Any] = {"generated": 1 if generated else 0}
+        if like is not None:
+            params["filter"] = like
+        r = self._request("GET", self._versioned(ns, f"docnames/{category}"), params=params, idempotent=True)
         body = self._body(r)
         self._raise_for_status(body)
         return [
@@ -226,6 +246,36 @@ class AtelierClient:
             )
             for d in body.get("result", {}).get("content", [])
         ]
+
+    def list_folder(
+        self, ns: str, package: str, *, system: bool, generated: bool, mapped: bool
+    ) -> list[FolderEntry]:
+        """One level of a namespace: the sub-packages and documents directly inside `package` ("" for the
+        namespace root), through %Library.RoutineMgr_StudioOpenDialog - the query VS Code's isfs uses.
+
+        `system` includes %-items, `generated` generated items, `mapped` items mapped from other databases.
+        "Other" documents (lookup tables, DTL, BPL, ...) are only listed at the root, by full name."""
+        spec = f"{package}/*" if package else "*"  # "Demo.Sub/*" (not "Demo/Sub/*": that lists nothing)
+        params = [spec, "1", "1", _flag(system), "0", "0", _flag(generated), "", "0", _flag(mapped)]
+        r = self._request(
+            "POST",
+            self._versioned(ns, "action/query"),
+            json={"query": _FOLDER_QUERY, "parameters": params},
+            idempotent=True,
+        )
+        body = self._body(r)
+        self._raise_for_status(body)
+        entries: list[FolderEntry] = []
+        for row in body.get("result", {}).get("content", []):
+            name, kind = str(row.get("Name", "")), row.get("Type")
+            if not name or kind == _TYPE_CSP_DIR:
+                continue
+            if kind == _TYPE_PACKAGE:
+                entries.append(FolderEntry(name, is_dir=True))
+            else:
+                full = name if kind == _TYPE_OTHER or not package else f"{package}.{name}"
+                entries.append(FolderEntry(full, is_dir=False, ts=str(row.get("Date", ""))))
+        return entries
 
     def doc_timestamp(self, ns: str, name: str) -> str:
         """Cheap freshness check: HEAD returns the document timestamp as ETag."""

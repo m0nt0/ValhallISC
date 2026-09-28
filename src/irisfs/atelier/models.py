@@ -45,6 +45,18 @@ class DocInfo:
 
 
 @dataclass(frozen=True)
+class FolderEntry:
+    """One entry of a one-level package listing (`AtelierApi.list_folder`).
+
+    `name` is the package segment for a folder ("Sub") and the full document name for a document
+    ("Demo.Sub.Thing.cls"). `ts` is the document's timestamp ("" for folders)."""
+
+    name: str
+    is_dir: bool
+    ts: str = ""
+
+
+@dataclass(frozen=True)
 class ImportResult:
     """Outcome of loading one XML file. `error` holds IRIS's status text (compile or load errors)."""
 

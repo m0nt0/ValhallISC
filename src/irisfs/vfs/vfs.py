@@ -31,12 +31,14 @@ from irisfs.atelier.errors import (
     ConnectionFailed,
     ForbiddenError,
     NotFoundError,
+    ServerError,
 )
-from irisfs.atelier.models import DocInfo, NamespaceInfo
+from irisfs.atelier.models import DocInfo, FolderEntry, NamespaceInfo
 from irisfs.vfs import junk, xmlexport
 from irisfs.vfs.content import ContentCache
 from irisfs.vfs.errors import FsError
-from irisfs.vfs.filters import is_visible
+from irisfs.vfs.filters import is_system_name, is_visible
+from irisfs.vfs.folders import FolderCache, Listing
 from irisfs.vfs.pathmap import doc_to_path, is_xml_name
 from irisfs.vfs.tree import DirNode, FileNode, TreeCache, lookup
 
@@ -126,6 +128,20 @@ def parse_ts(ts: str, default: float) -> float:
         return default
 
 
+def _full_name(package: str, entry: FolderEntry) -> str:
+    """What the system-name rule tests: a document's name, or a package's name with a trailing dot."""
+    if not entry.is_dir:
+        return entry.name
+    return f"{package}.{entry.name}." if package else f"{entry.name}."
+
+
+def _category(name: str) -> str:
+    ext = name.rpartition(".")[2].lower()
+    if ext == "cls":
+        return "CLS"
+    return "RTN" if ext in ("mac", "int", "inc", "bas", "mvb", "mvi") else "OTH"
+
+
 def to_fs_error(e: AtelierError) -> FsError:
     if isinstance(e, NotFoundError):
         return FsError(errno.ENOENT, e.message)
@@ -155,6 +171,15 @@ class VirtualFS:
         self._lock = threading.RLock()
         self._ns_info: dict[str, NamespaceInfo] = {}
         self._namespaces: tuple[float, tuple[str, ...]] | None = None
+        # Folders are listed one level at a time (ADR-014).
+        self.folders = FolderCache(
+            self._load_folder,
+            ttl=self.opts.tree_ttl,
+            case_insensitive=self.opts.case_insensitive,
+            clock=clock,
+            wall_clock=wall_clock,
+        )
+        # Fallback for namespaces where the one-level query fails: the whole namespace, as before ADR-014.
         self.trees = TreeCache(
             self._load_docs,
             ttl=self.opts.tree_ttl,
@@ -162,6 +187,12 @@ class VirtualFS:
             clock=clock,
             wall_clock=wall_clock,
         )
+        self._full_listing: set[str] = set()
+        # Per namespace: "other" documents (lookup tables, DTL, ...) that belong inside a package folder.
+        # IRIS lists them only at the root, by full name.
+        self._nested_others: dict[str, list[tuple[tuple[str, ...], DocInfo]]] = {}
+        # (namespace, package or document name, is package) -> mapped from a user database (shown)?
+        self._mapped_visible: dict[tuple[str, str, bool], bool] = {}
         self.content = ContentCache(self.opts.cache_bytes)
         self._handles: dict[int, Handle] = {}
         self._next_fh = 1
@@ -213,9 +244,108 @@ class VirtualFS:
         return info
 
     def _load_docs(self, ns: str) -> list[DocInfo]:
+        """Every visible document of a namespace (fallback listing, see `_load_folder`)."""
         info = self._info(ns)
         docs: list[DocInfo] = self._call(lambda: self.api.list_docs(ns))
         return [d for d in docs if is_visible(d, info, show_system=self.opts.show_system)]
+
+    def _load_folder(self, ns: str, parts: tuple[str, ...]) -> Listing:
+        """The visible content of one folder. Uses the one-level query; if the server refuses it (for
+        example the account may not run that SQL procedure), falls back to listing the whole namespace."""
+        with self._lock:
+            full = ns in self._full_listing
+        if not full:
+            try:
+                return self._query_folder(ns, parts)
+            except ServerError as e:
+                log.warning("one-level listing failed in %s (%s): listing the whole namespace", ns, e.message)
+                with self._lock:
+                    self._full_listing.add(ns)
+            except AtelierError as e:
+                log.warning("IRIS request failed: %s", e.message)
+                raise to_fs_error(e) from e
+        tree = self._call(lambda: self.trees.get(ns))
+        node = lookup(tree, parts, case_insensitive=self.opts.case_insensitive)
+        if not isinstance(node, DirNode):
+            return {}
+        return {n: c.doc if isinstance(c, FileNode) else None for n, c in node.children.items()}
+
+    def _query_folder(self, ns: str, parts: tuple[str, ...]) -> Listing:
+        show = self.opts.show_system
+        package = ".".join(parts)
+        entries = self.api.list_folder(
+            ns, package, system=show, generated=False, mapped=True
+        )  # never, as before
+        if not show:
+            entries = [e for e in entries if not is_system_name(_full_name(package, e))]
+            local = self.api.list_folder(ns, package, system=False, generated=False, mapped=False)
+            local_names = {e.name for e in local}
+            mapped_only = [e for e in entries if e.name not in local_names]
+            if mapped_only:
+                hidden = self._from_system_databases(ns, package, mapped_only)
+                entries = [e for e in entries if e.name not in hidden]
+        depth = len(parts)
+        listing: Listing = {}
+        nested: list[tuple[tuple[str, ...], DocInfo]] = []
+        for e in entries:
+            if e.is_dir:
+                listing.setdefault(e.name, None)
+                continue
+            path = doc_to_path(e.name)
+            if path is None or path[:depth] != parts:
+                continue
+            doc = DocInfo(e.name, _category(e.name), e.ts, db="", upd=True, gen=False)
+            if len(path) == depth + 1:
+                listing[path[-1]] = doc
+            else:  # an "other" document listed at the root by its full name
+                listing.setdefault(path[depth], None)
+                nested.append((path, doc))
+        if not parts:
+            with self._lock:
+                self._nested_others[ns] = nested
+        else:
+            with self._lock:
+                others = self._nested_others.get(ns, [])
+            for path, doc in others:
+                if len(path) > depth and path[:depth] == parts:
+                    if len(path) == depth + 1:
+                        listing[path[-1]] = doc
+                    else:
+                        listing.setdefault(path[depth], None)
+        return listing
+
+    def _from_system_databases(self, ns: str, package: str, mapped_only: list[FolderEntry]) -> set[str]:
+        """Names of the mapped entries that come from a system database (hidden, like ADR-003's rule)."""
+        info = self._info(ns)
+        if all(d.dbsys for d in info.databases if not d.default):
+            return {e.name for e in mapped_only}  # every mapped database is a system one
+        # Some mapped database is a user one: ask IRIS where each mapped entry comes from. Everything
+        # inside a package mapped from a user database comes from that database too.
+        hidden: set[str] = set()
+        for e in mapped_only:
+            if e.is_dir:
+                name = f"{package}.{e.name}" if package else e.name
+                stem = name
+            else:
+                name, stem = e.name, e.name.rpartition(".")[0]
+            segments = stem.split(".")
+            with self._lock:
+                inherited = any(
+                    self._mapped_visible.get((ns, ".".join(segments[:i]), True))
+                    for i in range(1, len(segments))
+                )
+                visible = True if inherited else self._mapped_visible.get((ns, name, e.is_dir))
+            if visible is None:
+                like = f"{name}.%" if e.is_dir else name
+                docs = self._call(lambda: self.api.list_docs(ns, like=like))  # noqa: B023 - called at once
+                if not e.is_dir:
+                    docs = [d for d in docs if d.name == name]
+                visible = any(is_visible(d, info, show_system=False) for d in docs)
+                with self._lock:
+                    self._mapped_visible[(ns, name, e.is_dir)] = visible
+            if not visible:
+                hidden.add(e.name)
+        return hidden
 
     def _export(self, ns: str, doc: DocInfo) -> bytes:
         data: bytes = self.content.get(
@@ -224,16 +354,16 @@ class VirtualFS:
         return data
 
     # ==== path resolution =========================================================================
-    def _resolve(self, path: str) -> tuple[str | None, DirNode | FileNode | None]:
-        """(namespace, node). For "/" returns (None, None); unknown paths raise ENOENT."""
+    def _resolve(self, path: str, *, load_last: bool = True) -> tuple[str | None, DirNode | FileNode | None]:
+        """(namespace, node). For "/" returns (None, None); unknown paths raise ENOENT.
+        A folder is returned loaded (its children listed) unless `load_last` is False."""
         parts = split(path)
         if not parts:
             return None, None
         ns = self._namespace(parts[0])
         if ns is None:
             raise FsError(errno.ENOENT)
-        tree = self._call(lambda: self.trees.get(ns))
-        node = lookup(tree, parts[1:], case_insensitive=self.opts.case_insensitive)
+        node = self._call(lambda: self.folders.resolve(ns, parts[1:], load_last=load_last))
         if node is None:
             raise FsError(errno.ENOENT)
         return ns, node
@@ -248,8 +378,8 @@ class VirtualFS:
             del self._buffers[p]  # empty placeholder that was never written
 
     def _dir_attr(self, ns: str | None = None) -> Attr:
-        # a namespace's folders carry the time its listing last changed (see TreeCache.changed_at)
-        mtime = (self.trees.changed_at(ns) if ns else None) or self.mounted_at
+        # a namespace's folders carry the time one of its listings last changed (see FolderCache.changed_at)
+        mtime = (self.folders.changed_at(ns) if ns else None) or self.mounted_at
         return Attr(True, 0, mtime, 0o555 if self.opts.read_only else 0o755)
 
     def _file_attr(self, size: int, mtime: float) -> Attr:
@@ -266,7 +396,7 @@ class VirtualFS:
                 return self._file_attr(len(self._buffers[path].data), self._wall())
             if path in self._ghosts:
                 return self._file_attr(len(self._ghosts[path].data), self._wall())
-        ns, node = self._resolve(path)
+        ns, node = self._resolve(path, load_last=False)  # a folder's stat does not need its content
         if node is None or isinstance(node, DirNode):
             return self._dir_attr(ns)
         assert ns is not None
@@ -505,6 +635,7 @@ class VirtualFS:
         finally:
             for name in manifest.items:
                 self.content.invalidate(ns, name)
+            self.folders.invalidate(ns)
             self.trees.invalidate(ns)
         if not result.imported:
             self._emit(
@@ -636,11 +767,17 @@ class VirtualFS:
 
     def refresh(self, ns: str | None = None) -> None:
         """Drop cached listings (and namespace info) so the next access reloads from IRIS."""
+        self.folders.invalidate(ns)
         self.trees.invalidate(ns)
         with self._lock:
             self._namespaces = None
+            for key in [k for k in self._mapped_visible if ns is None or k[0] == ns]:
+                del self._mapped_visible[key]
             if ns is None:
                 self._ns_info.clear()
+                self._full_listing.clear()
+            else:
+                self._full_listing.discard(ns)
 
 
 def _resize(data: bytearray, length: int) -> None:

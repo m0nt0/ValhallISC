@@ -529,6 +529,7 @@ def test_empty_placeholder_expires_and_can_be_deleted(env: Env, fake: FakeAtelie
 
 
 def test_namespace_folder_mtime_follows_listing_changes(env: Env, fake: FakeAtelier) -> None:
+    env.fs.readdir("/USER/Demo")  # a client now holds its content: its stat must reveal changes
     before = env.fs.getattr("/USER/Demo").mtime
     fake.add_doc("USER", "Demo.Extra.cls", "<Description>x</Description>")
     env.fs.refresh("USER")

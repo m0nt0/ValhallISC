@@ -11,6 +11,12 @@ from irisfs.atelier.models import DocInfo, NamespaceInfo
 _SYSTEM_NAME = re.compile(r"^(%|Ens(?:[A-Z.\-]|emble|eb)|HIPAA_)")
 
 
+def is_system_name(name: str) -> bool:
+    """True for a name reserved by InterSystems. For a package, pass its name with a trailing dot
+    ("Ens."): the test is a prefix test, so it then holds for every document inside the package."""
+    return bool(_SYSTEM_NAME.match(name))
+
+
 def is_visible(doc: DocInfo, ns: NamespaceInfo, *, show_system: bool) -> bool:
     if doc.name.startswith("/") or doc.db == "@FS":
         return False  # CSP/web files are not exposed in v1

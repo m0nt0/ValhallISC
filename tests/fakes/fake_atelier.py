@@ -11,6 +11,7 @@ Conventions of the fake:
 from __future__ import annotations
 
 import datetime as dt
+import re
 import threading
 import xml.etree.ElementTree as StdET
 from collections import Counter
@@ -20,9 +21,17 @@ import defusedxml.ElementTree as ET
 from defusedxml import DefusedXmlException
 
 from irisfs.atelier.errors import ConnectionFailed, NotFoundError
-from irisfs.atelier.models import DatabaseInfo, DocInfo, ImportResult, NamespaceInfo, ServerInfo
+from irisfs.atelier.models import (
+    DatabaseInfo,
+    DocInfo,
+    FolderEntry,
+    ImportResult,
+    NamespaceInfo,
+    ServerInfo,
+)
 
 HEADER = '<?xml version="1.0" encoding="UTF-8"?>\n'
+SYSTEM_DBS = {"IRISLIB", "IRISSYS", "ENSLIB"}  # any other database named by add_doc(db=...) is a user one
 
 
 @dataclass
@@ -46,6 +55,11 @@ def doc_name_of(el: StdET.Element) -> str | None:
     if el.tag == "Document":
         return name
     return None
+
+
+def _like_regex(like: str) -> re.Pattern[str]:
+    """SQL LIKE pattern ('%' any run, '_' one character) as a regular expression."""
+    return re.compile("".join(".*" if c == "%" else "." if c == "_" else re.escape(c) for c in like))
 
 
 def category_of(name: str) -> str:
@@ -109,17 +123,59 @@ class FakeAtelier:
 
     def namespace_info(self, ns: str) -> NamespaceInfo:
         self._enter("namespace_info")
-        self._ns(ns)
+        with self._lock:
+            used = {d.info.db for d in self._ns(ns).values()} - {ns, "IRISLIB"}
+        extra = tuple(
+            DatabaseInfo(db, False, db in SYSTEM_DBS) for db in sorted(used) if not db.startswith("@")
+        )
         return NamespaceInfo(
             name=ns,
-            databases=(DatabaseInfo(ns, True, ns == "%SYS"), DatabaseInfo("IRISLIB", False, True)),
+            databases=(DatabaseInfo(ns, True, ns == "%SYS"), DatabaseInfo("IRISLIB", False, True), *extra),
         )
 
-    def list_docs(self, ns: str, *, category: str = "*", generated: bool = False) -> list[DocInfo]:
+    def list_docs(
+        self, ns: str, *, category: str = "*", generated: bool = False, like: str | None = None
+    ) -> list[DocInfo]:
         self._enter("list_docs")
         with self._lock:
             docs = [d.info for d in self._ns(ns).values()]
-        return [d for d in docs if category in ("*", d.cat)]
+        pattern = _like_regex(like) if like is not None else None
+        return [
+            d for d in docs if category in ("*", d.cat) and (pattern is None or pattern.fullmatch(d.name))
+        ]
+
+    def list_folder(
+        self, ns: str, package: str, *, system: bool, generated: bool, mapped: bool
+    ) -> list[FolderEntry]:
+        """Like IRIS's StudioOpenDialog: one level, "other" documents only at the root by full name,
+        mapped = from a database other than the namespace's own."""
+        self._enter("list_folder")
+        with self._lock:
+            docs = [d.info for d in self._ns(ns).values()]
+        prefix = f"{package}." if package else ""
+        dirs: set[str] = set()
+        entries: list[FolderEntry] = []
+        for d in docs:
+            is_mapped = d.db != ns and not d.db.startswith("@")  # IRIS lists @OTHER documents as local
+            hidden_system = (
+                not system and d.name.startswith("%") and d.cat != "OTH"
+            )  # IRIS lists %*.LUT anyway
+            if hidden_system or (not mapped and is_mapped):
+                continue
+            if d.gen and not generated:
+                continue
+            if d.cat == "OTH":
+                if not package:
+                    entries.append(FolderEntry(d.name, is_dir=False, ts=d.ts))
+                continue
+            if not d.name.startswith(prefix):
+                continue
+            base = d.name[len(prefix) :].rpartition(".")[0]
+            if "." in base:
+                dirs.add(base.split(".", 1)[0])
+            else:
+                entries.append(FolderEntry(d.name, is_dir=False, ts=d.ts))
+        return [FolderEntry(n, is_dir=True) for n in sorted(dirs)] + sorted(entries, key=lambda e: e.name)
 
     def doc_timestamp(self, ns: str, name: str) -> str:
         self._enter("doc_timestamp")

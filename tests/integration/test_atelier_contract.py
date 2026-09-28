@@ -61,6 +61,34 @@ def test_import_list_export_delete_class(api: AtelierApi, unique: str) -> None:
             api.export_xml("USER", doc)
 
 
+def test_list_folder_one_level_at_a_time(api: AtelierApi, unique: str) -> None:
+    cls = f"{PKG}.{unique}.Deep.Leaf"
+    doc = f"{cls}.cls"
+    with cleanup(api, "USER", doc):
+        assert api.import_xml("USER", class_xml(cls)).ok
+
+        def listing(package: str, **kw: bool) -> dict[str, bool]:
+            flags = {"system": False, "generated": False, "mapped": True, **kw}
+            return {e.name: e.is_dir for e in api.list_folder("USER", package, **flags)}
+
+        assert listing("")["Irisfs"] is True
+        assert listing("Irisfs")["Contract"] is True
+        assert listing(f"{PKG}")[unique] is True
+        assert listing(f"{PKG}.{unique}") == {"Deep": True}
+        leaf = [
+            e
+            for e in api.list_folder(
+                "USER", f"{PKG}.{unique}.Deep", system=False, generated=False, mapped=True
+            )
+        ]
+        assert [(e.name, e.is_dir) for e in leaf] == [(doc, False)]
+        assert leaf[0].ts
+        assert listing(f"{PKG}.{unique}.Deep", mapped=False) == {doc: False}  # in USER's own database
+        # %-packages only on request ("other" documents such as %*.LUT are listed anyway: irisfs filters them)
+        assert not any(name.startswith("%") for name, is_dir in listing("").items() if is_dir)
+        assert [d.name for d in api.list_docs("USER", like=f"{PKG}.{unique}.%")] == [doc]
+
+
 def test_import_routine_name_normalized(api: AtelierApi, unique: str) -> None:
     rtn = "IRISFS" + unique.upper()
     with cleanup(api, "USER", f"{rtn}.mac"):
