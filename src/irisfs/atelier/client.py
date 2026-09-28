@@ -17,6 +17,7 @@ import httpx
 from irisfs.atelier.errors import (
     AuthError,
     ConnectionFailed,
+    DeployedError,
     ForbiddenError,
     NotFoundError,
     ServerError,
@@ -37,6 +38,7 @@ MIN_API = 7  # action/xml/export and action/xml/load appeared in v7
 _ROUTINE_EXTS = {"MAC", "INT", "INC", "BAS", "MVB", "MVI"}
 _NOT_FOUND_CODES = {6308}  # ExportNoDef
 _FORBIDDEN_CODES = {5883}  # item mapped from a database without write permission
+_DEPLOYED_CODES = {6309}  # class in deployed mode: no source to export
 
 # Parameters: Spec, Dir, OrderBy, SystemFiles, Flat, NotStudio, ShowGenerated, Filter, RoundTime, Mapped.
 # "Date" must be quoted: DATE is an SQL reserved word.
@@ -176,6 +178,8 @@ class AtelierClient:
         message = "; ".join(str(e.get("error", e)) if isinstance(e, dict) else str(e) for e in errors)
         if codes & _NOT_FOUND_CODES:
             raise NotFoundError(message)
+        if codes & _DEPLOYED_CODES:
+            raise DeployedError(message)
         if codes & _FORBIDDEN_CODES:
             raise ForbiddenError(message)
         raise ServerError(message)

@@ -20,6 +20,10 @@ class ForbiddenError(AtelierError):
     """Authenticated but not allowed (HTTP 403, or IRIS privilege errors)."""
 
 
+class DeployedError(ForbiddenError):
+    """The class is in deployed mode: IRIS has no source to export (#6309)."""
+
+
 class NotFoundError(AtelierError):
     """Namespace or document does not exist."""
 

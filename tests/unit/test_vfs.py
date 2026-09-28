@@ -110,6 +110,32 @@ def test_read_only_mode_bits(fake: FakeAtelier) -> None:
     assert e.fs.getattr("/USER").mode == 0o555
 
 
+def test_deployed_class_is_listed_read_only_and_cannot_be_opened(fake: FakeAtelier) -> None:
+    fake.deployed.add("Demo.Person.cls")
+    env = Env(fake)
+    assert "Person.cls.xml" in env.fs.readdir("/USER/Demo")
+    attr = env.fs.getattr(PERSON)
+    assert (attr.is_dir, attr.size, attr.mode) == (False, 0, 0o444)
+    assert errno_of(env.fs.open, PERSON, os.O_RDONLY) == errno.EACCES
+    assert errno_of(env.fs.open, PERSON, os.O_WRONLY | os.O_TRUNC) == errno.EACCES
+    assert env.fs.getattr("/USER/Demo/Sub/Thing.cls.xml").mode == 0o644  # others unaffected
+    exports = fake.calls["export_xml"]
+    env.fs.getattr(PERSON)
+    env.fs.readdir("/USER/Demo")
+    assert fake.calls["export_xml"] == exports  # remembered: not asked again
+
+
+def test_deployed_state_follows_the_timestamp(fake: FakeAtelier) -> None:
+    fake.deployed.add("Demo.Person.cls")
+    env = Env(fake, tree_ttl=0)
+    assert env.fs.getattr(PERSON).mode == 0o444
+    fake.deployed.clear()
+    fake.add_doc("USER", "Demo.Person.cls", "<Description>source again</Description>")  # new timestamp
+    env.now[0] += 1
+    assert env.fs.getattr(PERSON).mode == 0o644
+    assert b"source again" in env.read_all(PERSON)
+
+
 def test_case_insensitive_lookup(fake: FakeAtelier) -> None:
     e = Env(fake, case_insensitive=True)
     assert not e.fs.getattr("/user/demo/person.CLS.xml").is_dir

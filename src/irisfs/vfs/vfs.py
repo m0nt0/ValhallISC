@@ -29,6 +29,7 @@ from irisfs.atelier.errors import (
     AtelierError,
     AuthError,
     ConnectionFailed,
+    DeployedError,
     ForbiddenError,
     NotFoundError,
     ServerError,
@@ -193,6 +194,8 @@ class VirtualFS:
         self._nested_others: dict[str, list[tuple[tuple[str, ...], DocInfo]]] = {}
         # (namespace, package or document name, is package) -> mapped from a user database (shown)?
         self._mapped_visible: dict[tuple[str, str, bool], bool] = {}
+        # (namespace, document, timestamp) of classes in deployed mode: IRIS refuses to export them
+        self._deployed: set[tuple[str, str, str]] = set()
         self.content = ContentCache(self.opts.cache_bytes)
         self._handles: dict[int, Handle] = {}
         self._next_fh = 1
@@ -348,10 +351,25 @@ class VirtualFS:
         return hidden
 
     def _export(self, ns: str, doc: DocInfo) -> bytes:
-        data: bytes = self.content.get(
-            (ns, doc.name, doc.ts), lambda: self._call(lambda: self.api.export_xml(ns, doc.name))
-        )
+        data: bytes = self.content.get((ns, doc.name, doc.ts), lambda: self._fetch(ns, doc))
         return data
+
+    def _fetch(self, ns: str, doc: DocInfo) -> bytes:
+        try:
+            return self.api.export_xml(ns, doc.name)
+        except DeployedError as e:
+            # No source to export: shown read-only and empty, and it can be neither read nor replaced.
+            log.info("%s in %s is deployed: shown read-only", doc.name, ns)
+            with self._lock:
+                self._deployed.add((ns, doc.name, doc.ts))
+            raise FsError(errno.EACCES, e.message) from e
+        except AtelierError as e:
+            log.warning("IRIS request failed: %s", e.message)
+            raise to_fs_error(e) from e
+
+    def _is_deployed(self, ns: str, doc: DocInfo) -> bool:
+        with self._lock:
+            return (ns, doc.name, doc.ts) in self._deployed
 
     # ==== path resolution =========================================================================
     def _resolve(self, path: str, *, load_last: bool = True) -> tuple[str | None, DirNode | FileNode | None]:
@@ -401,10 +419,15 @@ class VirtualFS:
             return self._dir_attr(ns)
         assert ns is not None
         doc = node.doc
-        size = self.content.size(
-            (ns, doc.name, doc.ts), lambda: self._call(lambda: self.api.export_xml(ns, doc.name))
-        )
-        return self._file_attr(size, parse_ts(doc.ts, self.mounted_at))
+        mtime = parse_ts(doc.ts, self.mounted_at)
+        if not self._is_deployed(ns, doc):
+            try:
+                size = self.content.size((ns, doc.name, doc.ts), lambda: self._fetch(ns, doc))
+                return self._file_attr(size, mtime)
+            except FsError:
+                if not self._is_deployed(ns, doc):
+                    raise
+        return Attr(False, 0, mtime, 0o444)  # deployed class: read-only, no content
 
     def readdir(self, path: str) -> list[str]:
         ns, node = self._resolve(path)
@@ -434,7 +457,7 @@ class VirtualFS:
         for child in node.children.values():
             if isinstance(child, FileNode):
                 doc = child.doc
-                if not self.content.has_size((ns, doc.name, doc.ts)):
+                if not self.content.has_size((ns, doc.name, doc.ts)) and not self._is_deployed(ns, doc):
                     self._prefetch.submit(self._prefetch_one, ns, doc)
 
     def _prefetch_one(self, ns: str, doc: DocInfo) -> None:
@@ -483,6 +506,8 @@ class VirtualFS:
         if node is None or isinstance(node, DirNode):
             raise FsError(errno.EISDIR)
         assert ns is not None
+        if self._is_deployed(ns, node.doc):
+            raise FsError(errno.EACCES, "deployed class: no source to read, and it cannot be replaced")
         if not writing:
             return self._new_handle(Handle("read", path, snapshot=self._export(ns, node.doc)))
         self._check_writable()

@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 import defusedxml.ElementTree as ET
 from defusedxml import DefusedXmlException
 
-from irisfs.atelier.errors import ConnectionFailed, NotFoundError
+from irisfs.atelier.errors import ConnectionFailed, DeployedError, NotFoundError
 from irisfs.atelier.models import (
     DatabaseInfo,
     DocInfo,
@@ -76,6 +76,7 @@ class FakeAtelier:
     namespaces_: dict[str, dict[str, FakeDoc]] = field(default_factory=dict)
     api: int = 8
     readonly_namespaces: set[str] = field(default_factory=set)
+    deployed: set[str] = field(default_factory=set)  # document names in deployed mode (export fails #6309)
     fail_next: list[Exception] = field(default_factory=list)
     offline: bool = False
     calls: Counter[str] = field(default_factory=Counter)
@@ -190,6 +191,8 @@ class FakeAtelier:
             doc = self._ns(ns).get(name)
         if doc is None:
             raise NotFoundError(f"ERROR #6308: Item '{name}' is invalid or does not have any data to export")
+        if name in self.deployed:
+            raise DeployedError(f"ERROR #6309: Class '{name}' is in deployed mode and so can not be exported")
         text = (
             f'{HEADER}<Export generator="IRIS" version="26" ts="{doc.info.ts}">\n{doc.element}\n</Export>\n'
         )
