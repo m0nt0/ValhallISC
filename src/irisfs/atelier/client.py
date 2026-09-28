@@ -29,6 +29,7 @@ from irisfs.atelier.models import (
     FolderEntry,
     ImportResult,
     NamespaceInfo,
+    NamespaceMappings,
     ServerInfo,
 )
 
@@ -317,6 +318,28 @@ class AtelierClient:
         self._raise_for_status(body)
         rows = body.get("result", {}).get("content", [])
         return str(rows[0]["Name"]) if rows else None
+
+    def namespace_mappings(self, ns: str) -> NamespaceMappings:
+        """The package and routine mappings of `ns`, read in %SYS (Config.MapPackages / Config.MapRoutines).
+        Needs SQL access to %SYS: without it IRIS answers with an error (ForbiddenError / ServerError)."""
+        packages = self._sys_query("SELECT Name, Database FROM Config.MapPackages_List(?)", ns)
+        routines = self._sys_query("SELECT Name, Type, Database FROM Config.MapRoutines_List(?)", ns)
+        return NamespaceMappings(
+            packages=tuple((str(r["Name"]), str(r["Database"])) for r in packages),
+            routines=tuple((str(r["Name"]), str(r.get("Type") or ""), str(r["Database"])) for r in routines),
+        )
+
+    def _sys_query(self, sql: str, *params: str) -> list[dict[str, Any]]:
+        r = self._request(
+            "POST",
+            self._versioned("%SYS", "action/query"),
+            json={"query": sql, "parameters": list(params)},
+            idempotent=True,
+        )
+        body = self._body(r)
+        self._raise_for_status(body)
+        rows: list[dict[str, Any]] = body.get("result", {}).get("content", [])
+        return rows
 
     def doc_info(self, ns: str, name: str) -> DocInfo:
         """One document's metadata (database, timestamp) from `GET doc`: cost independent of the

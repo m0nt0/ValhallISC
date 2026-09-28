@@ -4,7 +4,14 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from irisfs.atelier.models import DocInfo, FolderEntry, ImportResult, NamespaceInfo, ServerInfo
+from irisfs.atelier.models import (
+    DocInfo,
+    FolderEntry,
+    ImportResult,
+    NamespaceInfo,
+    NamespaceMappings,
+    ServerInfo,
+)
 
 
 class AtelierApi(Protocol):
@@ -25,6 +32,7 @@ class AtelierApi(Protocol):
         limit: int | None = None,
     ) -> list[FolderEntry]: ...
     def first_class(self, ns: str, package: str) -> str | None: ...
+    def namespace_mappings(self, ns: str) -> NamespaceMappings: ...
     def doc_info(self, ns: str, name: str) -> DocInfo: ...
     def doc_timestamp(self, ns: str, name: str) -> str: ...
     def export_xml(self, ns: str, name: str) -> bytes: ...

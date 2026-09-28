@@ -34,8 +34,8 @@ from irisfs.atelier.errors import (
     NotFoundError,
     ServerError,
 )
-from irisfs.atelier.models import DocInfo, FolderEntry, NamespaceInfo
-from irisfs.vfs import junk, xmlexport
+from irisfs.atelier.models import DocInfo, FolderEntry, NamespaceInfo, NamespaceMappings
+from irisfs.vfs import junk, mapping, xmlexport
 from irisfs.vfs.content import ContentCache
 from irisfs.vfs.errors import FsError
 from irisfs.vfs.filters import is_system_name, is_visible
@@ -199,6 +199,7 @@ class VirtualFS:
         self._nested_others: dict[str, list[tuple[tuple[str, ...], DocInfo]]] = {}
         # (namespace, package or document name, is package) -> mapped from a user database (shown)?
         self._mapped_visible: dict[tuple[str, str, bool], bool] = {}
+        self._ns_mappings: dict[str, NamespaceMappings | None] = {}  # read in %SYS, None: not allowed
         # (namespace, document, timestamp) of classes in deployed mode: IRIS refuses to export them
         self._deployed: set[tuple[str, str, str]] = set()
         self.content = ContentCache(self.opts.cache_bytes)
@@ -351,7 +352,9 @@ class VirtualFS:
                 )
                 visible = True if inherited else self._mapped_visible.get((ns, name, e.is_dir))
             if visible is None:
-                unknown.append((e, name))
+                visible = self._visible_by_mappings(ns, info, e, name)  # the namespace's mapping table
+            if visible is None:
+                unknown.append((e, name))  # not decidable from the table: ask IRIS
             elif not visible:
                 hidden.add(e.name)
         if unknown:
@@ -360,6 +363,53 @@ class VirtualFS:
                 results = list(pool.map(lambda item: self._mapped_is_visible(ns, info, *item), unknown))
             hidden |= {e.name for (e, _), visible in zip(unknown, results, strict=True) if not visible}
         return hidden
+
+    def _mappings(self, ns: str) -> NamespaceMappings | None:
+        """The namespace's mappings read in %SYS, once per namespace; None if the account may not read them
+        (then every mapped entry is placed by asking IRIS about it)."""
+        with self._lock:
+            if ns in self._ns_mappings:
+                return self._ns_mappings[ns]
+        try:
+            mappings: NamespaceMappings | None = self.api.namespace_mappings(ns)
+            assert mappings is not None
+            log.info(
+                "mappings of %s: %d packages, %d routine patterns",
+                ns,
+                len(mappings.packages),
+                len(mappings.routines),
+            )
+        except ConnectionFailed as e:
+            raise to_fs_error(e) from e
+        except AtelierError as e:
+            log.info(
+                "mappings of %s not readable in %%SYS (%s): placing mapped items one by one", ns, e.message
+            )
+            mappings = None
+        with self._lock:
+            self._ns_mappings[ns] = mappings
+        return mappings
+
+    def _visible_by_mappings(self, ns: str, info: NamespaceInfo, e: FolderEntry, name: str) -> bool | None:
+        """Visible (mapped from a user database)? None when the mapping table can't tell."""
+        mappings = self._mappings(ns)
+        if mappings is None:
+            return None
+        if e.is_dir:
+            db = mapping.package_database(mappings, name)
+            if db is not None:
+                return mapping.database_visible(info, db)
+            # nothing maps the package as a whole: it holds mapped sub-packages
+            inner = [mapping.database_visible(info, d) for d in mapping.databases_inside(mappings, name)]
+            if any(v is True for v in inner):
+                return True
+            return False if inner and all(v is False for v in inner) else None
+        stem, _, ext = name.rpartition(".")
+        if ext.lower() == "cls":
+            db = mapping.package_database(mappings, stem)
+        else:
+            db = mapping.routine_database(mappings, stem, ext)
+        return mapping.database_visible(info, db) if db is not None else None
 
     def _mapped_is_visible(self, ns: str, info: NamespaceInfo, e: FolderEntry, name: str) -> bool:
         sample = self._sample_document(ns, name) if e.is_dir else name
@@ -847,6 +897,8 @@ class VirtualFS:
             self._namespaces = None
             for key in [k for k in self._mapped_visible if ns is None or k[0] == ns]:
                 del self._mapped_visible[key]
+            for name in [n for n in self._ns_mappings if ns is None or n == ns]:
+                del self._ns_mappings[name]
             if ns is None:
                 self._ns_info.clear()
                 self._full_listing.clear()

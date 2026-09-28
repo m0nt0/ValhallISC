@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 
 from irisfs.atelier.errors import ServerError
-from irisfs.atelier.models import DocInfo
+from irisfs.atelier.models import DocInfo, NamespaceMappings
 from irisfs.vfs.errors import FsError
 from irisfs.vfs.folders import FolderCache
 from irisfs.vfs.tree import DirNode, FileNode
@@ -285,3 +285,40 @@ def test_mapped_package_is_placed_by_one_class_lookup() -> None:
     # Shared and CSPX hold classes: one indexed lookup each, no folder walking to find a sample
     assert fake.calls["first_class"] == 2
     assert fake.calls["list_folder"] == 2  # just the two listings of the root itself
+
+
+def with_mappings(fake: FakeAtelier) -> FakeAtelier:
+    fake.add_doc("APP", "SHRTN.mac", db="SHAREDCODE")  # a routine mapped from the user database
+    fake.add_doc("APP", "SYSRTN.mac", db="ENSLIB")  # a routine mapped from a system database
+    fake.mappings["APP"] = NamespaceMappings(
+        packages=(("Shared", "SHAREDCODE"), ("CSPX.Dash", "ENSLIB"), ("Ens", "ENSLIB")),
+        routines=(("SH*", "", "SHAREDCODE"), ("SYSRTN", "MAC", "ENSLIB")),
+    )
+    return fake
+
+
+def test_mapping_table_places_everything_without_asking_per_item() -> None:
+    fake = with_mappings(make_fake())
+    tree = walk(VirtualFS(fake, Options(prefetch_workers=0)))
+    assert tree == EXPECTED | {"/APP/SHRTN.mac.xml"}
+    assert tree == walk(full_listing_fs(fake))  # same as the whole-namespace listing
+    assert fake.calls["doc_info"] == 0 and fake.calls["first_class"] == 0
+    assert fake.calls["namespace_mappings"] == 1  # read once per namespace
+
+
+def test_entries_the_table_cannot_place_are_asked_about() -> None:
+    fake = with_mappings(make_fake())
+    fake.mappings["APP"] = NamespaceMappings(packages=(("Shared", "SHAREDCODE"),), routines=())
+    tree = walk(VirtualFS(fake, Options(prefetch_workers=0)))
+    assert tree == EXPECTED | {"/APP/SHRTN.mac.xml"}
+    # CSPX, SHRTN.mac and SYSRTN.mac are not in the table: asked one by one (Shared is not)
+    assert fake.calls["doc_info"] == 3
+
+
+def test_refresh_reads_the_mappings_again() -> None:
+    fake = with_mappings(make_fake())
+    fs = VirtualFS(fake, Options(prefetch_workers=0))
+    fs.readdir("/APP")
+    fs.refresh("APP")
+    fs.readdir("/APP")
+    assert fake.calls["namespace_mappings"] == 2

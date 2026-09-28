@@ -57,6 +57,17 @@ class FolderEntry:
 
 
 @dataclass(frozen=True)
+class NamespaceMappings:
+    """A namespace's code mappings, as configured in %SYS.
+
+    `packages`: (package, database), e.g. ("CSPX.Dashboard", "ENSLIB").
+    `routines`: (pattern, type, database), e.g. ("Ens*", "", "ENSLIB"); type "" or "ALL" means every type."""
+
+    packages: tuple[tuple[str, str], ...] = ()
+    routines: tuple[tuple[str, str, str], ...] = ()
+
+
+@dataclass(frozen=True)
 class ImportResult:
     """Outcome of loading one XML file. `error` holds IRIS's status text (compile or load errors)."""
 

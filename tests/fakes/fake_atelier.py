@@ -20,13 +20,14 @@ from dataclasses import dataclass, field
 import defusedxml.ElementTree as ET
 from defusedxml import DefusedXmlException
 
-from irisfs.atelier.errors import ConnectionFailed, NotExportableError, NotFoundError
+from irisfs.atelier.errors import ConnectionFailed, ForbiddenError, NotExportableError, NotFoundError
 from irisfs.atelier.models import (
     DatabaseInfo,
     DocInfo,
     FolderEntry,
     ImportResult,
     NamespaceInfo,
+    NamespaceMappings,
     ServerInfo,
 )
 
@@ -76,7 +77,8 @@ class FakeAtelier:
     namespaces_: dict[str, dict[str, FakeDoc]] = field(default_factory=dict)
     api: int = 8
     readonly_namespaces: set[str] = field(default_factory=set)
-    deployed: set[str] = field(default_factory=set)  # document names in deployed mode (export fails #6309)
+    deployed: set[str] = field(default_factory=set)  # not exportable (#6309 deployed, #5848 project)
+    mappings: dict[str, NamespaceMappings] = field(default_factory=dict)  # readable in %SYS; else refused
     fail_next: list[Exception] = field(default_factory=list)
     offline: bool = False
     calls: Counter[str] = field(default_factory=Counter)
@@ -191,6 +193,15 @@ class FakeAtelier:
         with self._lock:
             names = sorted(n[:-4] for n in self._ns(ns) if n.endswith(".cls") and n.startswith(f"{package}."))
         return names[0] if names else None
+
+    def namespace_mappings(self, ns: str) -> NamespaceMappings:
+        """Like IRIS: the configured mappings, or an error for an account without SQL access to %SYS
+        (the default here, so tests exercise the one-by-one fallback unless they set `mappings`)."""
+        self._enter("namespace_mappings")
+        self._ns(ns)
+        if ns not in self.mappings:
+            raise ForbiddenError("ERROR #5540: SQLCODE: -99 Privilege violation")
+        return self.mappings[ns]
 
     def doc_info(self, ns: str, name: str) -> DocInfo:
         self._enter("doc_info")

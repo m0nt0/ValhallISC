@@ -43,6 +43,12 @@ def test_deployed_class_export_is_refused(real_client: AtelierClient) -> None:
         real_client.export_xml("%SYS", "%Library.SQLCatalogPriv.cls")
 
 
+def test_namespace_mappings_read_in_sys(real_client: AtelierClient) -> None:
+    m = real_client.namespace_mappings("USER")  # the test IRIS has interoperability enabled in USER
+    assert ("Ens", "ENSLIB") in m.packages
+    assert ("Ens*", "", "ENSLIB") in m.routines
+
+
 def test_namespaces(real_client: AtelierClient) -> None:
     assert {"USER", "TESTNS", "%SYS"} <= set(real_client.namespaces())
 
