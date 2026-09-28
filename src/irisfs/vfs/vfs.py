@@ -339,16 +339,35 @@ class VirtualFS:
                 )
                 visible = True if inherited else self._mapped_visible.get((ns, name, e.is_dir))
             if visible is None:
-                like = f"{name}.%" if e.is_dir else name
-                docs = self._call(lambda: self.api.list_docs(ns, like=like))  # noqa: B023 - called at once
-                if not e.is_dir:
-                    docs = [d for d in docs if d.name == name]
-                visible = any(is_visible(d, info, show_system=False) for d in docs)
+                sample = self._sample_document(ns, name) if e.is_dir else name
+                if sample is None:
+                    visible = False  # nothing inside that we could show
+                else:
+                    doc = self._call(lambda: self.api.doc_info(ns, sample))  # noqa: B023 - called at once
+                    visible = is_visible(doc, info, show_system=False)
+                log.debug("mapped %s %s in %s: %s", "package" if e.is_dir else "item", name, ns, visible)
                 with self._lock:
                     self._mapped_visible[(ns, name, e.is_dir)] = visible
             if not visible:
                 hidden.add(e.name)
         return hidden
+
+    def _sample_document(self, ns: str, package: str, depth: int = 0) -> str | None:
+        """One document inside a mapped package (its database tells where the whole package comes from).
+        A few one-level queries instead of listing the package with `docnames`, whose cost grows with it."""
+        entries: list[FolderEntry] = self._call(
+            lambda: self.api.list_folder(ns, package, system=True, generated=False, mapped=True)
+        )
+        doc = next((e for e in entries if not e.is_dir), None)
+        if doc is not None:
+            return doc.name
+        if depth >= 20:
+            return None
+        for sub in (e for e in entries if e.is_dir):
+            found = self._sample_document(ns, f"{package}.{sub.name}", depth + 1)
+            if found is not None:
+                return found
+        return None
 
     def _export(self, ns: str, doc: DocInfo) -> bytes:
         data: bytes = self.content.get((ns, doc.name, doc.ts), lambda: self._fetch(ns, doc))
@@ -378,6 +397,8 @@ class VirtualFS:
         parts = split(path)
         if not parts:
             return None, None
+        if parts[0].startswith("."):
+            raise FsError(errno.ENOENT)  # Finder's probes (._., .DS_Store, ...): no namespace starts with "."
         ns = self._namespace(parts[0])
         if ns is None:
             raise FsError(errno.ENOENT)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import logging.handlers
+import os
 import sys
 from pathlib import Path
 
@@ -18,8 +19,15 @@ def log_dir() -> Path:
     return Path(platformdirs.user_log_dir(APP_NAME, appauthor=False))
 
 
+def debug_enabled() -> bool:
+    return os.environ.get("VALHALLISC_DEBUG", "").strip().lower() in ("1", "true", "yes", "on")
+
+
 def setup(name: str, *, verbose: bool = False, to_stderr: bool = True) -> Path:
-    """Configure root logging; returns the log file path. `name` distinguishes gui/worker logs."""
+    """Configure root logging; returns the log file path. `name` distinguishes gui/worker logs.
+    VALHALLISC_DEBUG=1 turns on debug logging in every process (mount workers inherit it): each filesystem
+    operation and each IRIS request with its duration."""
+    verbose = verbose or debug_enabled()
     directory = log_dir()
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f"{name}.log"
@@ -34,6 +42,6 @@ def setup(name: str, *, verbose: bool = False, to_stderr: bool = True) -> Path:
     root.addHandler(fh)
     if to_stderr and sys.stderr is not None:  # None in windowed (no console) frozen builds
         sh = logging.StreamHandler(sys.stderr)
-        sh.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
+        sh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
         root.addHandler(sh)
     return path

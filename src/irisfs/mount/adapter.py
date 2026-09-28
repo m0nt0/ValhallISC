@@ -6,6 +6,7 @@ import errno
 import functools
 import logging
 import os
+import time
 from collections.abc import Callable
 from types import ModuleType
 from typing import Any, TypeVar
@@ -15,7 +16,7 @@ from irisfs.vfs.vfs import Attr, VirtualFS
 
 log = logging.getLogger(__name__)
 F = TypeVar("F", bound=Callable[..., Any])
-_QUIET_OPS = {"getattr", "read", "readdir", "statfs"}  # too frequent for the per-operation debug log
+_SLOW_MS = 1000  # operations slower than this are logged even without debug logging
 
 
 def make_operations(fuse: ModuleType, vfs: VirtualFS, *, on_init: Callable[[], None] | None = None) -> Any:
@@ -24,20 +25,32 @@ def make_operations(fuse: ModuleType, vfs: VirtualFS, *, on_init: Callable[[], N
     gid = os.getgid() if hasattr(os, "getgid") else 0
 
     def translate(fn: F) -> F:
+        name = fn.__name__
+
         @functools.wraps(fn)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
-            if log.isEnabledFor(logging.DEBUG) and fn.__name__ not in _QUIET_OPS:
-                log.debug("op %s%r", fn.__name__, tuple(a for a in args[1:] if not isinstance(a, bytes)))
+            started = time.perf_counter()
+            outcome = "ok"
             try:
                 return fn(*args, **kwargs)
             except FsError as e:
-                log.debug("op %s -> errno %s", fn.__name__, e.errno)
+                outcome = f"errno {e.errno}"
                 raise fuse.FuseOSError(e.errno) from None
             except fuse.FuseOSError:
+                outcome = "error"
                 raise
             except Exception:
-                log.exception("unexpected error in %s%r", fn.__name__, args[1:2])
+                outcome = "EIO (unexpected)"
+                log.exception("unexpected error in %s%r", name, args[1:2])
                 raise fuse.FuseOSError(errno.EIO) from None
+            finally:
+                ms = (time.perf_counter() - started) * 1000
+                # Slow operations are always logged; with debug logging (VALHALLISC_DEBUG=1) all of them are,
+                # except reads, which only when slow.
+                if ms >= _SLOW_MS or (log.isEnabledFor(logging.DEBUG) and (name != "read" or ms >= 50)):
+                    shown = tuple(a for a in args[1:] if not isinstance(a, bytes | bytearray))[:2]
+                    level = logging.INFO if ms >= _SLOW_MS else logging.DEBUG
+                    log.log(level, "op %s%r -> %s in %.0f ms", name, shown, outcome, ms)
 
         return wrapper  # type: ignore[return-value]
 

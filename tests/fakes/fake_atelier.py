@@ -178,6 +178,13 @@ class FakeAtelier:
                 entries.append(FolderEntry(d.name, is_dir=False, ts=d.ts))
         return [FolderEntry(n, is_dir=True) for n in sorted(dirs)] + sorted(entries, key=lambda e: e.name)
 
+    def doc_info(self, ns: str, name: str) -> DocInfo:
+        self._enter("doc_info")
+        try:
+            return self._ns(ns)[name].info
+        except KeyError:
+            raise NotFoundError(f"{name} not found", status_code=404) from None
+
     def doc_timestamp(self, ns: str, name: str) -> str:
         self._enter("doc_timestamp")
         try:

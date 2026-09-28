@@ -46,6 +46,7 @@ _FOLDER_QUERY = 'SELECT Name, Type, "Date" FROM %Library.RoutineMgr_StudioOpenDi
 _TYPE_PACKAGE = 9
 _TYPE_CSP_DIR = 10
 _TYPE_OTHER = 100  # lookup tables, DTL, BPL, HL7 schemas, ...: listed by full name at the root
+_SLOW_MS = 1000  # requests slower than this are logged even without debug logging
 
 
 def _flag(value: bool) -> str:
@@ -128,12 +129,15 @@ class AtelierClient:
                     continue
                 raise ConnectionFailed(f"Network error talking to {self.base_url}: {e}") from e
             # Never log headers or bodies: they may carry credentials or source code.
-            log.debug(
-                "%s %s -> %s (%.0f ms)",
+            ms = (time.perf_counter() - started) * 1000
+            log.log(
+                logging.INFO if ms >= _SLOW_MS else logging.DEBUG,
+                "%s %s -> %s (%.0f ms, %s bytes)",
                 method,
                 path,
                 response.status_code,
-                (time.perf_counter() - started) * 1000,
+                ms,
+                response.headers.get("content-length", "?"),
             )
             self._raise_for_http(response)
             return response
@@ -279,7 +283,27 @@ class AtelierClient:
             else:
                 full = name if kind == _TYPE_OTHER or not package else f"{package}.{name}"
                 entries.append(FolderEntry(full, is_dir=False, ts=str(row.get("Date", ""))))
+        log.debug(
+            "list_folder %s %r system=%s mapped=%s -> %d entries", ns, spec, system, mapped, len(entries)
+        )
         return entries
+
+    def doc_info(self, ns: str, name: str) -> DocInfo:
+        """One document's metadata (database, timestamp) from `GET doc`: cost independent of the
+        namespace's size, unlike `docnames`."""
+        body = self._body(
+            self._request("GET", self._versioned(ns, f"doc/{quote(name, safe='')}"), idempotent=True)
+        )
+        self._raise_for_status(body)
+        r = body.get("result", {})
+        return DocInfo(
+            name=str(r.get("name", name)),
+            cat=str(r.get("cat", "")),
+            ts=str(r.get("ts", "")),
+            db=str(r.get("db", "")),
+            upd=bool(r.get("upd", True)),
+            gen=False,
+        )
 
     def doc_timestamp(self, ns: str, name: str) -> str:
         """Cheap freshness check: HEAD returns the document timestamp as ETag."""

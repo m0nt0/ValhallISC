@@ -7,11 +7,13 @@ look at a namespace with tens of thousands of documents costs one small query in
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import time
 from collections.abc import Callable
 
 from irisfs.atelier.models import DocInfo
+from irisfs.vfs.pathmap import is_xml_name
 from irisfs.vfs.tree import DirNode, FileNode
 
 log = logging.getLogger(__name__)
@@ -20,6 +22,15 @@ Key = tuple[str, tuple[str, ...]]  # (namespace, folder path parts)
 # child name -> the document for a file, None for a sub-folder
 Listing = dict[str, DocInfo | None]
 _UNSEEN = object()
+_PACKAGE_SEGMENT = re.compile(r"^[^./\\\x00-\x1f]+$")  # as in pathmap: no dots, separators or control chars
+
+
+def _possible(segment: str, *, last: bool) -> bool:
+    """Could `segment` name something in a namespace? Folders are package segments (no dots), files are
+    "<name>.<ext>.xml". Finder and Explorer probe many other names in every folder."""
+    return bool(_PACKAGE_SEGMENT.match(segment)) or (
+        last and is_xml_name(segment) and not segment.startswith(".")
+    )
 
 
 class FolderCache:
@@ -87,6 +98,10 @@ class FolderCache:
 
         Every folder on the way is loaded (from cache when fresh). With `load_last=False` a folder at the
         end of the path is returned unloaded (enough to know that it exists and is a folder)."""
+        if not all(_possible(s, last=i == len(parts) - 1) for i, s in enumerate(parts)):
+            return None  # .DS_Store, Icon\r, desktop.ini, ...: answered without asking IRIS
+        if not parts and not load_last and not self.was_listed(ns, ()):
+            return DirNode()  # the namespace folder itself: its stat must not list it
         node: DirNode = self.get(ns, ())
         canonical: list[str] = []
         for i, segment in enumerate(parts):

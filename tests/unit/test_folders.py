@@ -8,6 +8,7 @@ import pytest
 
 from irisfs.atelier.errors import ServerError
 from irisfs.atelier.models import DocInfo
+from irisfs.vfs.errors import FsError
 from irisfs.vfs.folders import FolderCache
 from irisfs.vfs.tree import DirNode, FileNode
 from irisfs.vfs.vfs import Options, VirtualFS
@@ -85,12 +86,12 @@ def test_only_the_opened_folder_is_fetched() -> None:
     fs = VirtualFS(fake, Options(prefetch_workers=0))
     assert "App" in fs.readdir("/APP")
     first = fake.calls["list_folder"]
-    # Only the packages mapped from somewhere are placed (Shared: user database; CSPX: system database).
-    # Ens is hidden by its reserved name without asking. Never the whole namespace.
-    assert fake.calls["list_docs"] == 2
+    # Only the packages mapped from somewhere are placed (Shared: user database; CSPX: system database),
+    # by reading one document of each. Ens is hidden by its reserved name without asking.
+    assert fake.calls["doc_info"] == 2
     assert fs.readdir("/APP/App") == ["Model", "Person.cls.xml"]
     assert fake.calls["list_folder"] == first + 2  # this level only (mapped and local listings)
-    assert fake.calls["list_docs"] == 2
+    assert fake.calls["list_docs"] == 0  # never the whole namespace
 
 
 def test_stat_of_a_file_loads_only_its_ancestors() -> None:
@@ -100,14 +101,25 @@ def test_stat_of_a_file_loads_only_its_ancestors() -> None:
     assert not fs.folders.was_listed("APP", ("Shared",))
 
 
+def test_stat_of_namespaces_and_impossible_names_asks_nothing() -> None:
+    fake = make_fake()
+    fs = VirtualFS(fake, Options(prefetch_workers=0))
+    assert fs.readdir("/") == ["APP"]
+    assert fs.getattr("/APP").is_dir  # Finder stats every namespace shown: no listing for that
+    for junk in (".DS_Store", ".localized", "Icon\r", "desktop.ini", "._App", "App.old"):
+        with pytest.raises(FsError):
+            fs.getattr(f"/APP/{junk}")
+    assert fake.calls["list_folder"] == 0 and fake.calls["doc_info"] == 0
+
+
 def test_package_mapped_from_user_database_is_classified_once() -> None:
     fake = make_fake()
     fs = VirtualFS(fake, Options(prefetch_workers=0))
     fs.readdir("/APP")
-    assert fake.calls["list_docs"] == 2  # Shared and CSPX
+    assert fake.calls["doc_info"] == 2  # Shared and CSPX
     walk(fs, "/APP/Shared")
     fs.readdir("/APP")
-    assert fake.calls["list_docs"] == 2  # Shared's sub-packages inherit its database; results are kept
+    assert fake.calls["doc_info"] == 2  # Shared's sub-packages inherit its database; results are kept
 
 
 def test_only_system_databases_mapped_needs_no_classification() -> None:
@@ -115,7 +127,7 @@ def test_only_system_databases_mapped_needs_no_classification() -> None:
     del fake.namespaces_["APP"]["Shared.Util.cls"], fake.namespaces_["APP"]["Shared.Sub.Deep.cls"]
     fs = VirtualFS(fake, Options(prefetch_workers=0))
     assert "CSPX" not in fs.readdir("/APP")
-    assert fake.calls["list_docs"] == 0
+    assert fake.calls["doc_info"] == 0 and fake.calls["list_docs"] == 0
 
 
 def test_server_refusing_the_query_falls_back_to_the_whole_namespace() -> None:
