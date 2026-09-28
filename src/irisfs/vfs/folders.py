@@ -44,8 +44,12 @@ class FolderCache:
         case_insensitive: bool = False,
         clock: Clock = time.monotonic,
         wall_clock: Clock = time.time,
+        background: Callable[[Callable[[], None]], object] | None = None,
     ) -> None:
         self._loader = loader
+        self._background = background  # runs expired-listing reloads; None: reload in the caller
+        self._refreshing: set[Key] = set()
+        self._generation: dict[str, int] = {}  # per namespace, bumped by invalidate()
         self.ttl = ttl
         self.case_insensitive = case_insensitive
         self._clock = clock
@@ -62,14 +66,33 @@ class FolderCache:
 
     # ---- listings ------------------------------------------------------------------------------
     def get(self, ns: str, parts: tuple[str, ...]) -> DirNode:
-        """The loaded folder: files as FileNode, sub-folders as empty (not yet loaded) DirNode."""
+        """The loaded folder: files as FileNode, sub-folders as empty (not yet loaded) DirNode.
+
+        Only a folder never loaded (or invalidated) waits for IRIS. An expired listing is returned as it is
+        while a background reload refreshes it (when a `background` runner was given): Finder stats and
+        lists open folders every few seconds, and must not wait for IRIS each time."""
         key = (ns, parts)
         with self._lock:
-            key_lock = self._key_locks.setdefault(key, threading.Lock())
-        with key_lock:  # one loader call per folder at a time
             cached = self._listings.get(key)
+        if cached is not None:
+            if self._clock() - cached[0] < self.ttl:
+                return cached[1]
+            if self._background is not None:
+                self._refresh_later(key)
+                return cached[1]
+        return self._load(key)
+
+    def _load(self, key: Key) -> DirNode:
+        ns, parts = key
+        with self._lock:
+            key_lock = self._key_locks.setdefault(key, threading.Lock())
+            generation = self._generation.get(ns, 0)
+        with key_lock:  # one loader call per folder at a time
+            with self._lock:
+                cached = self._listings.get(key)
             if cached is not None and self._clock() - cached[0] < self.ttl:
                 return cached[1]
+            started = time.perf_counter()
             try:
                 listing = self._loader(ns, parts)
             except Exception:
@@ -77,6 +100,15 @@ class FolderCache:
                     self._signatures[key] = None  # the next successful load counts as a change
                     self._changed.setdefault(ns, self._wall())
                 raise
+            ms = (time.perf_counter() - started) * 1000
+            log.log(
+                logging.INFO if ms >= 1000 else logging.DEBUG,
+                "listed %s/%s: %d entries in %.0f ms",
+                ns,
+                "/".join(parts),
+                len(listing),
+                ms,
+            )
             node = DirNode(
                 {name: DirNode() if doc is None else FileNode(doc) for name, doc in sorted(listing.items())}
             )
@@ -88,8 +120,27 @@ class FolderCache:
                 elif previous is not _UNSEEN and previous != signature:
                     self._bump(ns)
                 self._signatures[key] = signature
-                self._listings[key] = (self._clock(), node)
+                if self._generation.get(ns, 0) == generation:  # not invalidated while loading
+                    self._listings[key] = (self._clock(), node)
             return node
+
+    def _refresh_later(self, key: Key) -> None:
+        with self._lock:
+            if key in self._refreshing:
+                return
+            self._refreshing.add(key)
+
+        def run() -> None:
+            try:
+                self._load(key)
+            except Exception as e:  # recorded by _load; the next access retries
+                log.debug("background reload of %s failed: %s", key, e)
+            finally:
+                with self._lock:
+                    self._refreshing.discard(key)
+
+        assert self._background is not None
+        self._background(run)
 
     def resolve(
         self, ns: str, parts: tuple[str, ...], *, load_last: bool = True
@@ -151,3 +202,6 @@ class FolderCache:
         with self._lock:
             for key in [k for k in self._listings if ns is None or k[0] == ns]:
                 del self._listings[key]
+            for name in {k[0] for k in self._signatures} | set(self._generation):
+                if ns is None or name == ns:
+                    self._generation[name] = self._generation.get(name, 0) + 1

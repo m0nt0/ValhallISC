@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 import pytest
@@ -146,7 +147,8 @@ def test_server_refusing_the_query_falls_back_to_the_whole_namespace() -> None:
 def test_new_document_appears_after_ttl_and_import_invalidates() -> None:
     fake = make_fake()
     now = [0.0]
-    fs = VirtualFS(fake, Options(prefetch_workers=0, tree_ttl=10), clock=lambda: now[0])
+    opts = Options(prefetch_workers=0, tree_ttl=10, background_refresh=False)
+    fs = VirtualFS(fake, opts, clock=lambda: now[0])
     assert "New.cls.xml" not in fs.readdir("/APP/App")
     fake.add_doc("APP", "App.New.cls")
     assert "New.cls.xml" not in fs.readdir("/APP/App")  # cached
@@ -228,3 +230,49 @@ def test_failed_load_then_success_moves_change_time(clocks: dict[str, float]) ->
     loader.fail = False
     fc.get("NS", ())  # same content as before the outage, but clients may cache "not found" answers
     assert fc.changed_at("NS") == 1001.0  # strictly later even within the same second
+
+
+def test_expired_listing_is_served_at_once_and_reloaded_in_background() -> None:
+    fake = make_fake()
+    now = [0.0]
+    fs = VirtualFS(fake, Options(prefetch_workers=0, tree_ttl=10), clock=lambda: now[0])
+    assert "New.cls.xml" not in fs.readdir("/APP/App")
+    fake.add_doc("APP", "App.New.cls")
+    now[0] = 11
+    assert "New.cls.xml" not in fs.readdir("/APP/App")  # stale, returned without waiting for IRIS
+    deadline = time.monotonic() + 5
+    while "New.cls.xml" not in fs.readdir("/APP/App"):  # the background reload lands shortly
+        assert time.monotonic() < deadline, "background reload never happened"
+        time.sleep(0.01)
+    fs.close()
+
+
+def test_background_runner_reloads_once_and_keeps_serving(clocks: dict[str, float]) -> None:
+    loader = Loader()
+    fc = cache(loader, clocks, ttl=5, background=lambda task: task())
+    fc.get("NS", ("Pkg",))
+    loader.data[("Pkg",)]["B.cls.xml"] = doc("Pkg.B.cls")
+    clocks["mono"] = 6
+    assert "B.cls.xml" not in fc.get("NS", ("Pkg",)).children  # served stale, reload runs (here: at once)
+    assert "B.cls.xml" in fc.get("NS", ("Pkg",)).children
+    assert loader.calls == [("Pkg",), ("Pkg",)]
+
+
+def test_invalidate_waits_for_fresh_content(clocks: dict[str, float]) -> None:
+    loader = Loader()
+    fc = cache(loader, clocks, ttl=5, background=lambda task: task())
+    fc.get("NS", ("Pkg",))
+    loader.data[("Pkg",)]["B.cls.xml"] = doc("Pkg.B.cls")
+    fc.invalidate("NS")  # after an import: the next access must see IRIS's new state
+    assert "B.cls.xml" in fc.get("NS", ("Pkg",)).children
+
+
+def test_default_projects_and_deployed_classes_are_read_only() -> None:
+    fake = make_fake()
+    fake.add_doc("APP", "Default_me.prj", db="@OTHER")
+    fake.deployed.add("Default_me.prj")
+    fs = VirtualFS(fake, Options(prefetch_workers=0))
+    assert fs.getattr("/APP/Default_me.prj.xml").mode == 0o444
+    before = fake.calls["export_xml"]
+    fs.getattr("/APP/Default_me.prj.xml")
+    assert fake.calls["export_xml"] == before

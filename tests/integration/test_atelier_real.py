@@ -9,7 +9,7 @@ import defusedxml.ElementTree as ET
 import pytest
 
 from irisfs.atelier.client import AtelierClient
-from irisfs.atelier.errors import AuthError, ConnectionFailed, DeployedError
+from irisfs.atelier.errors import AuthError, ConnectionFailed, NotExportableError
 from tests.conftest import IrisConn
 from tests.integration.xmlsamples import class_xml
 
@@ -39,7 +39,7 @@ def test_seed_items_listed_with_categories(real_client: AtelierClient) -> None:
 
 def test_deployed_class_export_is_refused(real_client: AtelierClient) -> None:
     # %Library.SQLCatalogPriv ships in deployed mode (no source): IRIS answers #6309
-    with pytest.raises(DeployedError):
+    with pytest.raises(NotExportableError):
         real_client.export_xml("%SYS", "%Library.SQLCatalogPriv.cls")
 
 

@@ -20,8 +20,9 @@ class ForbiddenError(AtelierError):
     """Authenticated but not allowed (HTTP 403, or IRIS privilege errors)."""
 
 
-class DeployedError(ForbiddenError):
-    """The class is in deployed mode: IRIS has no source to export (#6309)."""
+class NotExportableError(ForbiddenError):
+    """IRIS has nothing to export for this document: a class in deployed mode (#6309) or a default
+    Studio project (#5848)."""
 
 
 class NotFoundError(AtelierError):

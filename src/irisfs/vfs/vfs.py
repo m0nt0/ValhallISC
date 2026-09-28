@@ -29,8 +29,8 @@ from irisfs.atelier.errors import (
     AtelierError,
     AuthError,
     ConnectionFailed,
-    DeployedError,
     ForbiddenError,
+    NotExportableError,
     NotFoundError,
     ServerError,
 )
@@ -64,6 +64,7 @@ class Options:
     case_insensitive: bool = False
     namespaces_ttl: float = 30.0
     prefetch_workers: int = 4  # background exports started by readdir (0 disables)
+    background_refresh: bool = True  # expired folder listings are served stale and reloaded in background
     no_index_marker: bool = False  # macOS: expose /.metadata_never_index so Spotlight skips the volume
 
     @property
@@ -173,12 +174,16 @@ class VirtualFS:
         self._ns_info: dict[str, NamespaceInfo] = {}
         self._namespaces: tuple[float, tuple[str, ...]] | None = None
         # Folders are listed one level at a time (ADR-014).
+        self._refresher = (
+            ThreadPoolExecutor(2, thread_name_prefix="refresh") if self.opts.background_refresh else None
+        )
         self.folders = FolderCache(
             self._load_folder,
             ttl=self.opts.tree_ttl,
             case_insensitive=self.opts.case_insensitive,
             clock=clock,
             wall_clock=wall_clock,
+            background=self._refresher.submit if self._refresher else None,
         )
         # Fallback for namespaces where the one-level query fails: the whole namespace, as before ADR-014.
         self.trees = TreeCache(
@@ -325,6 +330,7 @@ class VirtualFS:
         # Some mapped database is a user one: ask IRIS where each mapped entry comes from. Everything
         # inside a package mapped from a user database comes from that database too.
         hidden: set[str] = set()
+        unknown: list[tuple[FolderEntry, str]] = []
         for e in mapped_only:
             if e.is_dir:
                 name = f"{package}.{e.name}" if package else e.name
@@ -339,18 +345,27 @@ class VirtualFS:
                 )
                 visible = True if inherited else self._mapped_visible.get((ns, name, e.is_dir))
             if visible is None:
-                sample = self._sample_document(ns, name) if e.is_dir else name
-                if sample is None:
-                    visible = False  # nothing inside that we could show
-                else:
-                    doc = self._call(lambda: self.api.doc_info(ns, sample))  # noqa: B023 - called at once
-                    visible = is_visible(doc, info, show_system=False)
-                log.debug("mapped %s %s in %s: %s", "package" if e.is_dir else "item", name, ns, visible)
-                with self._lock:
-                    self._mapped_visible[(ns, name, e.is_dir)] = visible
-            if not visible:
+                unknown.append((e, name))
+            elif not visible:
                 hidden.add(e.name)
+        if unknown:
+            # Independent lookups: run them side by side (the client caps concurrent requests).
+            with ThreadPoolExecutor(min(4, len(unknown)), thread_name_prefix="classify") as pool:
+                results = list(pool.map(lambda item: self._mapped_is_visible(ns, info, *item), unknown))
+            hidden |= {e.name for (e, _), visible in zip(unknown, results, strict=True) if not visible}
         return hidden
+
+    def _mapped_is_visible(self, ns: str, info: NamespaceInfo, e: FolderEntry, name: str) -> bool:
+        sample = self._sample_document(ns, name) if e.is_dir else name
+        if sample is None:
+            visible = False  # nothing inside that we could show
+        else:
+            doc: DocInfo = self._call(lambda: self.api.doc_info(ns, sample))
+            visible = is_visible(doc, info, show_system=False)
+        log.debug("mapped %s %s in %s: %s", "package" if e.is_dir else "item", name, ns, visible)
+        with self._lock:
+            self._mapped_visible[(ns, name, e.is_dir)] = visible
+        return visible
 
     def _sample_document(self, ns: str, package: str, depth: int = 0) -> str | None:
         """One document inside a mapped package (its database tells where the whole package comes from).
@@ -376,9 +391,10 @@ class VirtualFS:
     def _fetch(self, ns: str, doc: DocInfo) -> bytes:
         try:
             return self.api.export_xml(ns, doc.name)
-        except DeployedError as e:
-            # No source to export: shown read-only and empty, and it can be neither read nor replaced.
-            log.info("%s in %s is deployed: shown read-only", doc.name, ns)
+        except NotExportableError as e:
+            # Nothing to export (deployed class, default Studio project): shown read-only and empty, and it
+            # can be neither read nor replaced. Remembered, so IRIS is not asked again.
+            log.info("%s in %s cannot be exported, shown read-only: %s", doc.name, ns, e.message)
             with self._lock:
                 self._deployed.add((ns, doc.name, doc.ts))
             raise FsError(errno.EACCES, e.message) from e
@@ -486,8 +502,9 @@ class VirtualFS:
             self._export(ns, doc)
 
     def close(self) -> None:
-        if self._prefetch is not None:
-            self._prefetch.shutdown(wait=False, cancel_futures=True)
+        for pool in (self._prefetch, self._refresher):
+            if pool is not None:
+                pool.shutdown(wait=False, cancel_futures=True)
 
     def open(self, path: str, flags: int) -> int:
         writing = (flags & O_ACCMODE) in (os.O_WRONLY, os.O_RDWR) or bool(flags & os.O_TRUNC)

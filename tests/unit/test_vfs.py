@@ -127,7 +127,7 @@ def test_deployed_class_is_listed_read_only_and_cannot_be_opened(fake: FakeAteli
 
 def test_deployed_state_follows_the_timestamp(fake: FakeAtelier) -> None:
     fake.deployed.add("Demo.Person.cls")
-    env = Env(fake, tree_ttl=0)
+    env = Env(fake, tree_ttl=0, background_refresh=False)
     assert env.fs.getattr(PERSON).mode == 0o444
     fake.deployed.clear()
     fake.add_doc("USER", "Demo.Person.cls", "<Description>source again</Description>")  # new timestamp
