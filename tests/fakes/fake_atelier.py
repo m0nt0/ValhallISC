@@ -41,8 +41,21 @@ class FakeDoc:
     element: str  # serialized item element (<Class ...>...</Class>)
 
 
+_last_ts = [""]
+_ts_lock = threading.Lock()
+
+
 def _now() -> str:
-    return dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+    """A timestamp like IRIS's, strictly increasing: a document saved again always gets a new one. (The
+    Windows clock advances in ~15 ms steps, so two saves in a row could otherwise share a millisecond.)"""
+    with _ts_lock:
+        now = dt.datetime.now()
+        ts = now.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+        while ts <= _last_ts[0]:
+            now += dt.timedelta(milliseconds=1)
+            ts = now.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+        _last_ts[0] = ts
+        return ts
 
 
 def doc_name_of(el: StdET.Element) -> str | None:

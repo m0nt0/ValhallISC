@@ -1,6 +1,7 @@
 # IRISFS (ValhallISC): implementation plan
 
 > **Status (2026-09-26):** implemented. The product is named **ValhallISC**; the Python package keeps the working title `irisfs`. Gates G0–G9 and G11 have passed on macOS (macFUSE **and** FUSE-T) and on Linux. G10 has passed on Windows: the packaged 0.9.1 `.exe` was tested by hand with WinFsp (profiles, mount, copy out and in).
+> - Release 0.9.2 "4dava" is published on GitHub (https://github.com/m0nt0/ValhallISC/releases/tag/v0.9.2): one-level folder loading for large servers (`doc/progress/release-0.9.2.md`).
 > - Release 0.9.1 is published on GitHub (https://github.com/m0nt0/ValhallISC/releases/tag/v0.9.1): signed and notarized DMGs for Apple silicon and Intel, Linux x86_64/aarch64 binaries, and the Windows `.exe` pair built by GitHub Actions (`doc/progress/release-0.9.1.md`; 0.9.0 in `release-0.9.0.md`).
 > - Still open: the Windows executables are not code-signed.
 >
