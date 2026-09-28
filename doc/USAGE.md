@@ -117,7 +117,9 @@ Once mounted, the folder looks like this:
   - anything that writes, when the profile is read-only.
 
   Files your system creates on its own (`.DS_Store`, `._*`, `desktop.ini`, `Thumbs.db`) are kept in memory only and never reach IRIS.
-- **What's listed:** by default only your own code. `%` items, InterSystems library classes, generated classes and CSP files are hidden. Tick **Show system items** in the profile to see the library too.
+- **What's listed:** by default only your own code. `%` items, InterSystems library classes, generated classes and CSP files are hidden. Tick **Show system items** in the profile to see the library too. Generated items stay hidden.
+- **Loading:** a folder is listed from IRIS when you open it, one level at a time, and cached for a few seconds. Once a folder has been opened it is never waited for again: an expired listing is shown at once and refreshed in the background. Packages mapped from other databases are shown or hidden using the namespace's mappings, read in `%SYS`. Without SQL access to `%SYS` they are checked one by one, which is slower the first time.
+- **Read-only files:** classes in deployed mode (no source) and default Studio projects (`Default_<user>.prj`) are listed as read-only, empty files. IRIS has nothing to export for them.
 - **Changes made on the server** (e.g. from VS Code) appear within about 10 seconds.
 
 The sample file `samples/Demo.FinderHello.xml` in the project is handy to try an import.
@@ -151,7 +153,7 @@ valhallisc --batch --disconnect Dev
 
 **Advanced:** extra FUSE mount options can be passed with the `VALHALLISC_FUSE_OPTIONS` environment variable (comma-separated, e.g. `rwsize=65536`).
 
-**Logs:** `valhallisc doctor` prints the log folder. It contains `gui.log` for the app and one `worker-*.log` per mounted server. Start the app or the command line with `-v` for more detail.
+**Logs:** `valhallisc doctor` prints the log folder. It contains `gui.log` for the app and one `worker-*.log` per mounted server. For more detail, with the duration of every filesystem operation and IRIS request, start the app with the `VALHALLISC_DEBUG=1` environment variable (on macOS: `VALHALLISC_DEBUG=1 /Applications/ValhallISC.app/Contents/MacOS/ValhallISC`), or the command line with `-v`. Operations slower than one second are logged in any case.
 
 ## 8. Where things are stored
 
