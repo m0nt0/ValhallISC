@@ -87,6 +87,8 @@ def test_list_folder_one_level_at_a_time(api: AtelierApi, unique: str) -> None:
         # %-packages only on request ("other" documents such as %*.LUT are listed anyway: irisfs filters them)
         assert not any(name.startswith("%") for name, is_dir in listing("").items() if is_dir)
         assert [d.name for d in api.list_docs("USER", like=f"{PKG}.{unique}.%")] == [doc]
+        assert api.first_class("USER", f"{PKG}.{unique}") == cls
+        assert api.first_class("USER", f"{PKG}.{unique}.Nope") is None
         first = api.list_folder("USER", "Irisfs", system=False, generated=False, mapped=True, limit=1)
         assert [e.name for e in first] == ["Contract"]
 

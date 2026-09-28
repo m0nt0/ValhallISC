@@ -45,6 +45,7 @@ _NOT_EXPORTABLE_CODES = {6309, 5848}  # deployed class (no source); default Stud
 _FOLDER_QUERY = (
     'SELECT {top}Name, Type, "Date" FROM %Library.RoutineMgr_StudioOpenDialog(?,?,?,?,?,?,?,?,?,?)'
 )
+_FIRST_CLASS_QUERY = "SELECT TOP 1 Name FROM %Dictionary.ClassDefinition WHERE Name %STARTSWITH ?"
 _TYPE_PACKAGE = 9
 _TYPE_CSP_DIR = 10
 _TYPE_OTHER = 100  # lookup tables, DTL, BPL, HL7 schemas, ...: listed by full name at the root
@@ -302,6 +303,20 @@ class AtelierClient:
             "list_folder %s %r system=%s mapped=%s -> %d entries", ns, spec, system, mapped, len(entries)
         )
         return entries
+
+    def first_class(self, ns: str, package: str) -> str | None:
+        """Name of one class inside `package` (".cls" not included), or None. Uses the class dictionary's
+        index, so it costs the same for a package of ten classes or of forty thousand."""
+        r = self._request(
+            "POST",
+            self._versioned(ns, "action/query"),
+            json={"query": _FIRST_CLASS_QUERY, "parameters": [f"{package}."]},
+            idempotent=True,
+        )
+        body = self._body(r)
+        self._raise_for_status(body)
+        rows = body.get("result", {}).get("content", [])
+        return str(rows[0]["Name"]) if rows else None
 
     def doc_info(self, ns: str, name: str) -> DocInfo:
         """One document's metadata (database, timestamp) from `GET doc`: cost independent of the

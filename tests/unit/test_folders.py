@@ -276,3 +276,12 @@ def test_default_projects_and_deployed_classes_are_read_only() -> None:
     before = fake.calls["export_xml"]
     fs.getattr("/APP/Default_me.prj.xml")
     assert fake.calls["export_xml"] == before
+
+
+def test_mapped_package_is_placed_by_one_class_lookup() -> None:
+    fake = make_fake()
+    fs = VirtualFS(fake, Options(prefetch_workers=0))
+    fs.readdir("/APP")
+    # Shared and CSPX hold classes: one indexed lookup each, no folder walking to find a sample
+    assert fake.calls["first_class"] == 2
+    assert fake.calls["list_folder"] == 2  # just the two listings of the root itself

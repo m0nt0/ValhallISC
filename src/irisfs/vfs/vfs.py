@@ -375,7 +375,12 @@ class VirtualFS:
 
     def _sample_document(self, ns: str, package: str, depth: int = 0) -> str | None:
         """One document inside a mapped package (its database tells where the whole package comes from).
-        A few one-level queries instead of listing the package with `docnames`, whose cost grows with it."""
+        First a class, through the class dictionary's index (constant cost); for a package without classes,
+        a few limited one-level queries. Never `docnames`, whose cost grows with the namespace."""
+        if depth == 0:
+            found: str | None = self._call(lambda: self.api.first_class(ns, package))
+            if found is not None:
+                return f"{found}.cls"
         entries: list[FolderEntry] = self._call(
             lambda: self.api.list_folder(ns, package, system=True, generated=False, mapped=True, limit=50)
         )

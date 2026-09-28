@@ -186,6 +186,12 @@ class FakeAtelier:
         result = [FolderEntry(n, is_dir=True) for n in sorted(dirs)] + sorted(entries, key=lambda e: e.name)
         return result[:limit] if limit else result
 
+    def first_class(self, ns: str, package: str) -> str | None:
+        self._enter("first_class")
+        with self._lock:
+            names = sorted(n[:-4] for n in self._ns(ns) if n.endswith(".cls") and n.startswith(f"{package}."))
+        return names[0] if names else None
+
     def doc_info(self, ns: str, name: str) -> DocInfo:
         self._enter("doc_info")
         try:
