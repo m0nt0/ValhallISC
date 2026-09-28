@@ -31,6 +31,7 @@ from irisfs.atelier.models import (
     NamespaceInfo,
     NamespaceMappings,
     ServerInfo,
+    SourceStatus,
 )
 
 log = logging.getLogger(__name__)
@@ -318,6 +319,38 @@ class AtelierClient:
         self._raise_for_status(body)
         rows = body.get("result", {}).get("content", [])
         return str(rows[0]["Name"]) if rows else None
+
+    def source_control_enabled(self, ns: str) -> bool:
+        """Whether `ns` has a source control class (git-source-control, CCR, ...), as VS Code checks it."""
+        rows = self._query(ns, "SELECT %Atelier_v1_Utils.Extension_ExtensionEnabled() AS Enabled")
+        return bool(rows and rows[0].get("Enabled"))
+
+    def source_control_status(self, ns: str, names: list[str]) -> dict[str, SourceStatus]:
+        """Source control state of documents, keyed by the lower-cased document name. One query per
+        hundred names (%Atelier.v1.Utils.Extension:GetStatus takes them comma-separated)."""
+        result: dict[str, SourceStatus] = {}
+        for start in range(0, len(names), 100):
+            chunk = ",".join(names[start : start + 100])
+            for r in self._query(ns, "SELECT * FROM %Atelier_v1_Utils.Extension_GetStatus(?)", chunk):
+                result[str(r.get("name", "")).lower()] = SourceStatus(
+                    in_source_control=bool(r.get("inSourceControl")),
+                    editable=bool(r.get("editable", True)),
+                    checked_out=bool(r.get("isCheckedOut")),
+                    checked_out_by=str(r.get("checkedOutBy") or ""),
+                )
+        return result
+
+    def _query(self, ns: str, sql: str, *params: str) -> list[dict[str, Any]]:
+        r = self._request(
+            "POST",
+            self._versioned(ns, "action/query"),
+            json={"query": sql, "parameters": list(params)},
+            idempotent=True,
+        )
+        body = self._body(r)
+        self._raise_for_status(body)
+        rows: list[dict[str, Any]] = body.get("result", {}).get("content", [])
+        return rows
 
     def namespace_mappings(self, ns: str) -> NamespaceMappings:
         """The package and routine mappings of `ns`, read in %SYS (Config.MapPackages / Config.MapRoutines).

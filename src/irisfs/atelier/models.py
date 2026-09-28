@@ -57,6 +57,16 @@ class FolderEntry:
 
 
 @dataclass(frozen=True)
+class SourceStatus:
+    """A document's state in the namespace's source control (%Studio.SourceControl GetStatus)."""
+
+    in_source_control: bool = False
+    editable: bool = True
+    checked_out: bool = False
+    checked_out_by: str = ""
+
+
+@dataclass(frozen=True)
 class NamespaceMappings:
     """A namespace's code mappings, as configured in %SYS.
 

@@ -34,8 +34,8 @@ from irisfs.atelier.errors import (
     NotFoundError,
     ServerError,
 )
-from irisfs.atelier.models import DocInfo, FolderEntry, NamespaceInfo, NamespaceMappings
-from irisfs.vfs import junk, mapping, xmlexport
+from irisfs.atelier.models import DocInfo, FolderEntry, NamespaceInfo, NamespaceMappings, SourceStatus
+from irisfs.vfs import checkout, junk, mapping, xmlexport
 from irisfs.vfs.content import ContentCache
 from irisfs.vfs.errors import FsError
 from irisfs.vfs.filters import is_system_name, is_visible
@@ -66,6 +66,11 @@ class Options:
     prefetch_workers: int = 4  # background exports started by readdir (0 disables)
     background_refresh: bool = True  # expired folder listings are served stale and reloaded in background
     no_index_marker: bool = False  # macOS: expose /.metadata_never_index so Spotlight skips the volume
+    # Source control state in file managers (ADR-017): "macos" Finder tags, "xdg" user.xdg.* attributes,
+    # "none"; plus a _CHECKED_OUT.txt per folder where something is checked out (Windows, Linux).
+    checkout_marks: str = "none"
+    checkout_list_file: bool = False
+    user: str = ""  # the IRIS user of the profile: "checked out by you"
 
     @property
     def load_flags(self) -> str:
@@ -202,6 +207,11 @@ class VirtualFS:
         self._ns_mappings: dict[str, NamespaceMappings | None] = {}  # read in %SYS, None: not allowed
         # (namespace, document, timestamp) of classes in deployed mode: IRIS refuses to export them
         self._deployed: set[tuple[str, str, str]] = set()
+        # Source control (ADR-017): whether each namespace has one, and each listed document's state,
+        # keyed by (namespace, lower-cased document name); refreshed with its folder's listing.
+        self._xattrs: dict[str, dict[str, bytes]] = {}  # path -> extended attributes written by clients
+        self._sc_enabled: dict[str, bool] = {}
+        self._sc_status: dict[tuple[str, str], SourceStatus] = {}
         self.content = ContentCache(self.opts.cache_bytes)
         self._handles: dict[int, Handle] = {}
         self._next_fh = 1
@@ -259,6 +269,11 @@ class VirtualFS:
         return [d for d in docs if is_visible(d, info, show_system=self.opts.show_system)]
 
     def _load_folder(self, ns: str, parts: tuple[str, ...]) -> Listing:
+        listing = self._list_folder(ns, parts)
+        self._load_source_status(ns, listing)
+        return listing
+
+    def _list_folder(self, ns: str, parts: tuple[str, ...]) -> Listing:
         """The visible content of one folder. Uses the one-level query; if the server refuses it (for
         example the account may not run that SQL procedure), falls back to listing the whole namespace."""
         with self._lock:
@@ -467,6 +482,78 @@ class VirtualFS:
         with self._lock:
             return (ns, doc.name, doc.ts) in self._deployed
 
+    # ==== source control (ADR-017) ================================================================
+    def _source_control(self, ns: str) -> bool:
+        with self._lock:
+            if ns in self._sc_enabled:
+                return self._sc_enabled[ns]
+        try:
+            enabled = self.api.source_control_enabled(ns)
+        except AtelierError as e:
+            log.info("source control state of %s unknown (%s): not shown", ns, e.message)
+            enabled = False
+        if enabled:
+            log.info("%s has source control: showing checked-out documents", ns)
+        with self._lock:
+            self._sc_enabled[ns] = enabled
+        return enabled
+
+    def _load_source_status(self, ns: str, listing: Listing) -> None:
+        docs = [d for d in listing.values() if d is not None]
+        if not docs or not self._source_control(ns):
+            return
+        try:
+            states = self.api.source_control_status(ns, [d.name for d in docs])
+        except AtelierError as e:
+            log.info("source control state in %s unavailable: %s", ns, e.message)
+            return
+        changed = False
+        with self._lock:
+            for d in docs:
+                key = (ns, d.name.lower())
+                new = states.get(key[1], SourceStatus())
+                previous = self._sc_status.get(key)
+                changed |= previous is not None and previous != new
+                self._sc_status[key] = new
+        if changed:
+            self.folders.mark_changed(ns)  # tags are metadata too: file managers must look again
+
+    def _status(self, ns: str, doc: DocInfo) -> SourceStatus | None:
+        with self._lock:
+            return self._sc_status.get((ns, doc.name.lower()))
+
+    def _fresh_status(self, ns: str, doc: DocInfo) -> SourceStatus | None:
+        """The document's state asked again now: a write must not be refused on a stale answer (it may
+        have been checked out a moment ago in VS Code)."""
+        try:
+            state = self.api.source_control_status(ns, [doc.name]).get(doc.name.lower())
+        except AtelierError:
+            return self._status(ns, doc)
+        if state is not None:
+            with self._lock:
+                self._sc_status[(ns, doc.name.lower())] = state
+        return state
+
+    def _checked_out_in(self, ns: str, node: DirNode) -> list[tuple[str, SourceStatus]]:
+        entries = []
+        for name, child in node.children.items():
+            if isinstance(child, FileNode):
+                state = self._status(ns, child.doc)
+                if state is not None and state.checked_out:
+                    entries.append((name, state))
+        return entries
+
+    def _list_file(self, path: str) -> bytes | None:
+        """Content of a folder's _CHECKED_OUT.txt, or None if `path` isn't one (or the folder has none)."""
+        parts = split(path)
+        if not self.opts.checkout_list_file or len(parts) < 2 or parts[-1] != checkout.LIST_FILE:
+            return None
+        ns, node = self._resolve("/" + "/".join(parts[:-1]))
+        if ns is None or not isinstance(node, DirNode):
+            return None
+        entries = self._checked_out_in(ns, node)
+        return checkout.list_file(entries, self.opts.user) if entries else None
+
     # ==== path resolution =========================================================================
     def _resolve(self, path: str, *, load_last: bool = True) -> tuple[str | None, DirNode | FileNode | None]:
         """(namespace, node). For "/" returns (None, None); unknown paths raise ENOENT.
@@ -512,6 +599,9 @@ class VirtualFS:
                 return self._file_attr(len(self._buffers[path].data), self._wall())
             if path in self._ghosts:
                 return self._file_attr(len(self._ghosts[path].data), self._wall())
+        listed = self._list_file(path)
+        if listed is not None:
+            return Attr(False, len(listed), self._dir_attr(split(path)[0]).mtime, 0o444)
         ns, node = self._resolve(path, load_last=False)  # a folder's stat does not need its content
         if node is None or isinstance(node, DirNode):
             return self._dir_attr(ns)
@@ -521,7 +611,11 @@ class VirtualFS:
         if not self._is_deployed(ns, doc):
             try:
                 size = self.content.size((ns, doc.name, doc.ts), lambda: self._fetch(ns, doc))
-                return self._file_attr(size, mtime)
+                attr = self._file_attr(size, mtime)
+                state = self._status(ns, doc)
+                if state is not None and not state.editable:
+                    attr = Attr(False, size, mtime, 0o444)  # source control: not checked out
+                return attr
             except FsError:
                 if not self._is_deployed(ns, doc):
                     raise
@@ -535,6 +629,8 @@ class VirtualFS:
             names = sorted(node.children)
             assert ns is not None
             self._prefetch_sizes(ns, node)
+            if self.opts.checkout_list_file and self._checked_out_in(ns, node):
+                names.append(checkout.LIST_FILE)
         else:
             raise FsError(errno.ENOTDIR)
         prefix = path.rstrip("/") + "/"
@@ -601,6 +697,11 @@ class VirtualFS:
                 )
                 self._buffers[path] = wb
                 return self._new_handle(Handle("write", path, buffer=wb))
+        listed = self._list_file(path)
+        if listed is not None:
+            if writing:
+                raise FsError(errno.EACCES, "generated by ValhallISC")
+            return self._new_handle(Handle("read", path, snapshot=listed))
         ns, node = self._resolve(path)
         if node is None or isinstance(node, DirNode):
             raise FsError(errno.EISDIR)
@@ -610,6 +711,11 @@ class VirtualFS:
         if not writing:
             return self._new_handle(Handle("read", path, snapshot=self._export(ns, node.doc)))
         self._check_writable()
+        state = self._status(ns, node.doc)
+        if state is not None and not state.editable:
+            state = self._fresh_status(ns, node.doc)
+            if state is not None and not state.editable:
+                raise FsError(errno.EACCES, "not checked out in the server's source control")
         initial = b"" if flags & os.O_TRUNC else self._export(ns, node.doc)
         with self._lock:
             existing = self._buffers.get(path)
@@ -840,22 +946,56 @@ class VirtualFS:
     def utimens(self, path: str, times: tuple[int, int] | None = None) -> None:
         self._metadata_noop(path)
 
+    # Extended attributes written by copy tools and Finder (quarantine, FinderInfo, ...) are kept in memory
+    # for the mount's lifetime: FUSE-T's NFS client reads them back right after writing (with named
+    # attributes on, ADR-017). The source control tags are computed and take precedence.
     def setxattr(self, path: str, name: str, value: bytes, options: int) -> None:
         self._metadata_noop(path)
+        with self._lock:
+            self._xattrs.setdefault(path, {})[name] = bytes(value)
 
     def removexattr(self, path: str, name: str) -> None:
         self._metadata_noop(path)
+        with self._lock:
+            self._xattrs.get(path, {}).pop(name, None)
 
     def getxattr(self, path: str, name: str) -> bytes:
         self.getattr(path)
-        raise FsError(ENOATTR)
+        state = self._path_status(path)
+        if state is not None:
+            value = checkout.attribute(self.opts.checkout_marks, name, state, self.opts.user)
+            if value is not None:
+                return value
+        with self._lock:
+            stored = self._xattrs.get(path, {}).get(name)
+        if stored is None:
+            raise FsError(ENOATTR)
+        return stored
 
     def listxattr(self, path: str) -> list[str]:
         self.getattr(path)
-        return []
+        names: list[str] = []
+        state = self._path_status(path)
+        if state is not None:
+            style, user = self.opts.checkout_marks, self.opts.user
+            names = [n for n in checkout.attribute_names(style) if checkout.attribute(style, n, state, user)]
+        with self._lock:
+            names += [n for n in self._xattrs.get(path, {}) if n not in names]
+        return names
+
+    def _path_status(self, path: str) -> SourceStatus | None:
+        with self._lock:
+            if path in self._scratch or path in self._buffers or path in self._ghosts:
+                return None
+        if self.opts.checkout_marks == "none" or self._list_file(path) is not None:
+            return None
+        ns, node = self._resolve(path, load_last=False)
+        if ns is None or not isinstance(node, FileNode):
+            return None
+        return self._status(ns, node.doc)
 
     def _metadata_noop(self, path: str) -> None:
-        """Accept metadata changes so cp -p / Finder / Explorer copies succeed; nothing is stored."""
+        """Accept metadata changes so cp -p / Finder / Explorer copies succeed (nothing reaches IRIS)."""
         with self._lock:
             if path in self._scratch or path in self._buffers or path in self._ghosts:
                 return
@@ -899,6 +1039,8 @@ class VirtualFS:
                 del self._mapped_visible[key]
             for name in [n for n in self._ns_mappings if ns is None or n == ns]:
                 del self._ns_mappings[name]
+            for name in [n for n in self._sc_enabled if ns is None or n == ns]:
+                del self._sc_enabled[name]
             if ns is None:
                 self._ns_info.clear()
                 self._full_listing.clear()

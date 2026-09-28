@@ -26,7 +26,7 @@ def test_macos_fuse_t_gets_no_macfuse_only_options() -> None:
         mount_point="/x/y",
     )
     assert o["ro"] and o["volname"] == "y" and "local" not in o
-    assert o["noattrcache"] and o["location"] == "ValhallISC"  # FUSE-T specifics
+    assert o["noattrcache"] and o["namedattr"] and o["location"] == "ValhallISC"  # FUSE-T specifics
 
 
 def test_extra_options_from_environment(monkeypatch: pytest.MonkeyPatch) -> None:

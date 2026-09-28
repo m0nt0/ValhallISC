@@ -119,6 +119,9 @@ class Worker:
                 tree_ttl=self.config.tree_ttl,
                 case_insensitive=self.system in ("Darwin", "Windows"),
                 no_index_marker=self.system == "Darwin",
+                checkout_marks={"Darwin": "macos", "Linux": "xdg"}.get(self.system, "none"),
+                checkout_list_file=self.system in ("Windows", "Linux"),
+                user=p.username,
             ),
             on_event=self.emit,
         )

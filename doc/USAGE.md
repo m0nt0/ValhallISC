@@ -126,6 +126,17 @@ Once mounted, the folder looks like this:
 
 The sample file `samples/Demo.FinderHello.xml` in the project is handy to try an import.
 
+### Source control (git-source-control, CCR, ...)
+When a namespace has a source control class, ValhallISC works through it like VS Code does:
+- **Copying a file in** calls the source control's save and compile hooks. A document that isn't checked out is refused, and the import fails with IRIS's message ("… is not checked out of source control").
+- **Documents you may not change** (not checked out, or checked out by someone else) are shown **read-only**.
+- **Checked-out documents** are marked:
+  - *macOS:* a Finder tag, green **Checked out** when you checked it out, orange **Checked out by <user>** for someone else;
+  - *Linux:* the same text in the `user.xdg.tags` and `user.xdg.comment` attributes, which KDE Dolphin shows;
+  - *Windows and Linux:* a read-only `_CHECKED_OUT.txt` in each folder that holds checked-out documents, listing them with who checked them out.
+
+ValhallISC doesn't check out, check in or commit: do that in your usual tool (VS Code, Studio, your source control's web page). The marks follow within a few seconds, when the folder is refreshed.
+
 ## 6. Command line
 
 Everything above also works from a terminal or a script:

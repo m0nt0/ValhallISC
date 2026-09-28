@@ -39,6 +39,9 @@ def mount_options(
             # FUSE-T serves the volume over NFS; the macOS NFS client's attribute cache kept "not found"
             # answers given during a server outage indefinitely. No measurable cost (our own caches answer).
             opts["noattrcache"] = True
+            # NFSv4 named attributes: without them the NFS client never asks for extended attributes, and
+            # the Finder tags that show the source control state (ADR-017) stay invisible.
+            opts["namedattr"] = True
     elif system == "Windows":
         # WinFsp-FUSE: map file ownership to the current user. [VERIFY on Windows]
         opts.update(uid=-1, gid=-1, FileSystemName="IRISFS", volname=profile_name[:32] or "IRIS")

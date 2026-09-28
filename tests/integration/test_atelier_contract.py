@@ -143,3 +143,9 @@ def test_unicode_round_trip(api: AtelierApi, unique: str) -> None:
     with cleanup(api, "USER", f"{cls}.cls"):
         api.import_xml("USER", class_xml(cls, description=text))
         assert text.encode("utf-8") in api.export_xml("USER", f"{cls}.cls")
+
+
+def test_no_source_control_in_the_test_namespace(api: AtelierApi) -> None:
+    # USER has no source control class (the e2e test registers one only for its own duration)
+    assert api.source_control_enabled("USER") is False
+    assert api.source_control_status("USER", ["Demo.Person.cls"]) == {}

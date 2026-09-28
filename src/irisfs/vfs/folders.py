@@ -191,6 +191,13 @@ class FolderCache:
             changed = previous + 1.0  # strictly increasing even within the same second
         self._changed[ns] = changed
 
+    def mark_changed(self, ns: str) -> None:
+        """Something shown in the namespace changed without its listings changing (e.g. source control
+        state): move the change time so file managers look again."""
+        with self._lock:
+            if ns in self._changed:
+                self._bump(ns)
+
     def changed_at(self, ns: str) -> float | None:
         """Wall time a folder of the namespace last changed (None before the first load)."""
         with self._lock:

@@ -29,6 +29,7 @@ from irisfs.atelier.models import (
     NamespaceInfo,
     NamespaceMappings,
     ServerInfo,
+    SourceStatus,
 )
 
 HEADER = '<?xml version="1.0" encoding="UTF-8"?>\n'
@@ -92,6 +93,7 @@ class FakeAtelier:
     readonly_namespaces: set[str] = field(default_factory=set)
     deployed: set[str] = field(default_factory=set)  # not exportable (#6309 deployed, #5848 project)
     mappings: dict[str, NamespaceMappings] = field(default_factory=dict)  # readable in %SYS; else refused
+    source_control: dict[str, dict[str, SourceStatus]] = field(default_factory=dict)  # ns with a VCS
     fail_next: list[Exception] = field(default_factory=list)
     offline: bool = False
     calls: Counter[str] = field(default_factory=Counter)
@@ -206,6 +208,20 @@ class FakeAtelier:
         with self._lock:
             names = sorted(n[:-4] for n in self._ns(ns) if n.endswith(".cls") and n.startswith(f"{package}."))
         return names[0] if names else None
+
+    def source_control_enabled(self, ns: str) -> bool:
+        self._enter("source_control_enabled")
+        self._ns(ns)
+        return ns in self.source_control
+
+    def source_control_status(self, ns: str, names: list[str]) -> dict[str, SourceStatus]:
+        """Like IRIS: every requested document, with the configured state or a plain one; nothing at all
+        in a namespace without source control."""
+        self._enter("source_control_status")
+        if ns not in self.source_control:
+            return {}
+        states = self.source_control[ns]
+        return {n.lower(): states.get(n, SourceStatus(in_source_control=True)) for n in names}
 
     def namespace_mappings(self, ns: str) -> NamespaceMappings:
         """Like IRIS: the configured mappings, or an error for an account without SQL access to %SYS
