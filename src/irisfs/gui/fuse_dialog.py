@@ -8,6 +8,7 @@ import wx
 import wx.adv
 
 from irisfs import APP_NAME
+from irisfs.gui import icons
 from irisfs.mount.fuse_help import Advice
 
 
@@ -23,6 +24,7 @@ class FuseMissingDialog(wx.Dialog):
         super().__init__(
             parent, title=f"{APP_NAME} — {advice.title}", style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER
         )
+        self.SetIcons(icons.app_icons())
         self.recheck = recheck
         self.advice = advice
         panel = wx.Panel(self)

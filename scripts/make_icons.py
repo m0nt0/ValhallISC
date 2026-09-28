@@ -8,6 +8,7 @@ Outputs:
                                                at runtime on Linux/Windows). Inner valknut + ring only:
                                                the rune ring is unreadable at 22 px.
   assets/app_icon_1024.png, valhallisc.icns/.ico   full logo on a white disc (app/bundle/exe icons)
+  src/irisfs/gui/icons/app_<size>.png          the same logo for windows (title bar, taskbar)
 """
 
 from pathlib import Path
@@ -17,6 +18,7 @@ from PIL import Image, ImageDraw, ImageFilter
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "assets" / "valhallisc.jpg"
 ICONS = ROOT / "src" / "irisfs" / "gui" / "icons"
+WINDOW_ICON_SIZES = (16, 24, 32, 48, 64, 128, 256)
 
 
 def alpha_from_darkness(gray: Image.Image) -> Image.Image:
@@ -56,7 +58,14 @@ def main() -> None:
         ROOT / "assets" / "valhallisc.ico",
         sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)],
     )
+    window_icons(app)
     print("icons written")
+
+
+def window_icons(app: Image.Image) -> None:
+    """The logo for window title bars and the Windows taskbar / Linux window list (wx.IconBundle)."""
+    for px in WINDOW_ICON_SIZES:
+        app.resize((px, px), Image.LANCZOS).save(ICONS / f"app_{px}.png")
 
 
 if __name__ == "__main__":

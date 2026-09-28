@@ -67,6 +67,20 @@ def svg_bundle(template: str, size: int = 20) -> wx.BitmapBundle:
     return wx.BitmapBundle.FromSVG(template.format(c=colour).encode(), wx.Size(size, size))
 
 
+WINDOW_ICON_SIZES = (16, 24, 32, 48, 64, 128, 256)
+
+
+def app_icons() -> wx.IconBundle:
+    """The ValhallISC logo in every size, for windows: title bar, Windows taskbar, Linux window list.
+    (The macOS Dock shows the bundle's icon instead.)"""
+    bundle = wx.IconBundle()
+    for px in WINDOW_ICON_SIZES:
+        icon = wx.Icon()
+        icon.CopyFromBitmap(wx.Bitmap(_load(f"app_{px}.png")))
+        bundle.AddIcon(icon)
+    return bundle
+
+
 def app_icon() -> wx.Icon:
     icon = wx.Icon()
     icon.CopyFromBitmap(wx.Bitmap(_load("tray@2x.png")))

@@ -52,6 +52,13 @@ def test_profile_list_has_one_border_style(frame: Any) -> None:
     assert border == wx.BORDER_THEME
 
 
+def test_windows_carry_the_logo(frame: Any) -> None:
+    # Windows taskbar and Linux window list show the window's icons, not the executable's (ADR-016)
+    icons = frame.GetIcons()
+    assert icons.GetIconCount() == 7
+    assert icons.GetIcon(48).IsOk() and icons.GetIcon(48).GetWidth() == 48
+
+
 def test_empty_store_shows_empty_form(frame: Any) -> None:
     assert frame.row_count() == 0
     assert frame.current is None

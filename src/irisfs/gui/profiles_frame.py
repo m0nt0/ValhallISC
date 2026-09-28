@@ -62,6 +62,7 @@ def _heading(parent: wx.Window, text: str) -> wx.StaticText:
 class ProfilesFrame(wx.Frame):
     def __init__(self, controller: AppController, parent: wx.Window | None = None) -> None:
         super().__init__(parent, title=f"{APP_NAME} — Profiles", size=wx.Size(900, 600))
+        self.SetIcons(icons.app_icons())  # taskbar / title bar: the logo, not wx's generic icon
         self.controller = controller
         self.current: Profile | None = None
         self.current_is_new = False
