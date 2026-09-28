@@ -51,7 +51,7 @@ Run `valhallisc doctor` to check a machine. It lists the FUSE driver found, the 
 
 On macOS the app appears in the Dock and its icon in the menu bar. On Windows and Linux the icon is in the system tray. The menu-bar icon is dimmed while nothing is mounted and solid when something is.
 
-Only one copy of the app runs at a time. Opening it again (a click on the Dock icon, the Start menu, Finder, or the executable) shows the **Profiles** window of the copy already running. This is also how to find it when its menu-bar icon is hidden, for example behind the notch of a MacBook. On macOS, Cmd-Q and **Quit** in the Dock ask for confirmation and unmount the servers, like **Quit** in the menu.
+Only one copy of the app runs at a time. Opening it again (a click on the Dock icon, the Start menu, Finder, or the executable) shows the **Profiles** window of the copy already running. This is also how to find it when its menu-bar icon is hidden, for example behind the notch of a MacBook. On macOS the app has its own menu bar: **Profiles…** (Cmd-,) and **Quit ValhallISC** (Cmd-Q). Cmd-Q and **Quit** in the Dock ask for confirmation and unmount the servers, like **Quit** in the menu.
 
 ## 3. Add a server (profile)
 
@@ -76,6 +76,8 @@ On first start the **Profiles** window opens by itself. Otherwise use **menu →
 Mistakes are shown in red under the field concerned. A mounted profile can't be edited or deleted: its banner offers **Open folder** and **Unmount…** instead.
 
 ## 4. Mount and unmount
+
+From the **Profiles** window, **Connect** (next to **Test connection**) mounts the selected server; a new or changed profile is saved first.
 
 Click the icon. The menu shows every server with its state:
 

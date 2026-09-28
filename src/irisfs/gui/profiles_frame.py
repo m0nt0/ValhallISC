@@ -2,8 +2,8 @@
 
 Left: two-line profile rows (status dot, name, host or mount state) with "+" and trash buttons below.
 Right: a banner with Open folder / Unmount while the profile is mounted, then two tabs - Connection
-(grouped: Server, Sign in, Mount) and Options - and a fixed footer: Test connection (+ inline result),
-Revert, Save.
+(grouped: Server, Sign in, Mount) and Options - and a fixed footer: Test connection, Connect
+(+ inline result), Revert, Save.
 """
 
 from __future__ import annotations
@@ -219,11 +219,14 @@ class ProfilesFrame(wx.Frame):
 
         # footer
         self.btn_test = wx.Button(form, label="Test connection")
+        self.btn_connect = wx.Button(form, label="Connect")
+        self.btn_connect.SetToolTip("Save if needed, then mount this server")
         self.test_result = wx.StaticText(form, label="")
         self.btn_revert = wx.Button(form, label="Revert")
         self.btn_save = wx.Button(form, wx.ID_SAVE, label="Save")
         footer = wx.BoxSizer(wx.HORIZONTAL)
         footer.Add(self.btn_test)
+        footer.Add(self.btn_connect, 0, wx.LEFT, 8)
         footer.Add(self.test_result, 1, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 10)
         footer.Add(self.btn_revert, 0, wx.RIGHT, 8)
         footer.Add(self.btn_save)
@@ -263,6 +266,7 @@ class ProfilesFrame(wx.Frame):
         self.btn_save.Bind(wx.EVT_BUTTON, lambda _e: self.on_save())
         self.btn_revert.Bind(wx.EVT_BUTTON, lambda _e: self.on_revert())
         self.btn_test.Bind(wx.EVT_BUTTON, lambda _e: self.on_test())
+        self.btn_connect.Bind(wx.EVT_BUTTON, lambda _e: self.on_connect())
 
     # ---- list --------------------------------------------------------------------------------
     def reload_list(self, select_id: str | None) -> None:
@@ -435,6 +439,7 @@ class ProfilesFrame(wx.Frame):
         ):
             ctrl.Enable(has and not locked)
         self.btn_test.Enable(has)
+        self.btn_connect.Enable(has and not locked)  # locked: mounting, mounted or unmounting
         self.btn_save.Enable(has and not locked and self.dirty)
         self.btn_revert.Enable(has and not locked and self.dirty and not self.current_is_new)
         self.btn_delete.Enable(has and not locked)
@@ -534,6 +539,15 @@ class ProfilesFrame(wx.Frame):
         self._show(self.controller.store.get(profile.id), is_new=False)
         self.reload_list(profile.id)
         return True
+
+    def on_connect(self) -> None:
+        """Mount the selected server; an unsaved or changed profile is saved first."""
+        if self.current is None:
+            return
+        if (self.current_is_new or self.dirty) and not self.on_save():
+            return  # errors are shown under the fields
+        assert self.current is not None
+        self.controller.connect(self.current.id)
 
     def on_revert(self) -> None:
         if self.current is not None and not self.current_is_new:

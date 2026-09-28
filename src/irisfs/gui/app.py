@@ -24,6 +24,7 @@ from irisfs.mount import fuse_help
 from irisfs.mount.manager import MountManager
 
 log = logging.getLogger(__name__)
+ID_PROFILES = wx.NewIdRef()
 
 
 class _WxApp(wx.App):  # type: ignore[misc]
@@ -81,6 +82,7 @@ class ValhallApp:
             # unmount) as the menu's Quit. Vetoed here; the controller exits once the servers are unmounted.
             # (Elsewhere the event only comes with a system shutdown, which must not wait for a dialog.)
             self.wx_app.Bind(wx.EVT_QUERY_END_SESSION, self._on_quit_request)
+        self._install_menu_bar()
         self.show_poll = wx.Timer(self.hidden)
         self.hidden.Bind(wx.EVT_TIMER, self._poll_show_request, self.show_poll)
         self.show_poll.Start(1000)
@@ -123,6 +125,24 @@ class ValhallApp:
         bring_to_front()
         self.profiles.Show()
         self.profiles.Raise()
+
+    def _install_menu_bar(self) -> None:
+        """macOS: the app's menu bar, shown whether or not a window is open. wx's application menu has
+        Quit (Cmd-Q, wx.ID_EXIT): it asks for confirmation and unmounts, like Quit in the menu-bar icon."""
+        if sys.platform != "darwin":
+            return
+        menu = wx.Menu()
+        menu.Append(ID_PROFILES, "Profiles…\tCtrl+,")  # (the application menu already has Quit, Cmd-Q)
+        bar = wx.MenuBar()
+        bar.Append(menu, "&File")
+        wx.MenuBar.MacSetCommonMenuBar(bar)
+        self.menu_bar = bar  # keep a reference: wx doesn't own the common menu bar
+        self.wx_app.Bind(wx.EVT_MENU, lambda _e: self.open_profiles(), id=ID_PROFILES)
+        self.wx_app.Bind(wx.EVT_MENU, self._on_menu_quit, id=wx.ID_EXIT)
+
+    def _on_menu_quit(self, _event: wx.CommandEvent) -> None:
+        log.info("quit requested (Cmd-Q)")
+        self.controller.on_quit()
 
     def _poll_show_request(self, _event: wx.TimerEvent) -> None:
         if instance.take_show_request(self.config_dir):

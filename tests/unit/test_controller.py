@@ -398,3 +398,12 @@ def test_missing_fuse_opens_the_install_help(env: Env) -> None:
     env.ctl.on_profile_clicked(p.id)
     assert env.mgr.calls == [] and shown and shown[0].commands == ("sudo apt install fuse3",)
     assert env.prompter.log == []  # the dialog replaces the generic error
+
+
+def test_connect_mounts_only_an_inactive_profile(env: Env) -> None:
+    p = env.add("Box")
+    env.ctl.connect(p.id)
+    assert ("mount", p.id) in env.mgr.calls
+    env.mgr.calls.clear()
+    env.ctl.connect(p.id)  # already mounting: nothing more
+    assert not any(c[0] == "mount" for c in env.mgr.calls)

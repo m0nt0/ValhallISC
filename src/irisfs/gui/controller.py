@@ -199,6 +199,11 @@ class AppController:
             self._mount(profile)
         # MOUNTING / UNMOUNTING: menu item is disabled; ignore stray clicks
 
+    def connect(self, profile_id: str) -> None:
+        """Mount a saved profile (the Profiles window's Connect button)."""
+        if self.manager.state(profile_id) is State.INACTIVE:
+            self._mount(self.store.get(profile_id))
+
     def default_fuse_check(self) -> fuse_help.Advice | None:
         # /dev/fuse can only be probed for the platform we actually run on (tests simulate others)
         native = self.system == platform.system()

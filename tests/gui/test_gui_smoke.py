@@ -95,6 +95,31 @@ def test_add_fill_save(frame: Any, env: Env, wx_app: Any) -> None:
     assert frame.password.GetHint() == UNCHANGED
 
 
+def test_connect_saves_then_mounts(frame: Any, env: Env, wx_app: Any) -> None:
+    frame.on_add()
+    frame.name.SetValue("Dev IRIS")
+    frame.host.SetValue("10.0.0.5")
+    frame.user.SetValue("dev")
+    frame.password.SetValue("s3cret")
+    frame.mount_point.SetPath(str(env.tmp / "devmnt"))
+    assert frame.btn_connect.IsEnabled()
+    click(frame.btn_connect)
+    pump(wx_app)
+    [saved] = env.store.profiles()  # saved first: a mount needs the stored profile and password
+    assert ("mount", saved.id) in env.mgr.calls
+    frame.reload_list(saved.id)
+    pump(wx_app)
+    assert not frame.btn_connect.IsEnabled()  # mounting: the banner offers the actions now
+
+
+def test_connect_with_invalid_form_mounts_nothing(frame: Any, env: Env) -> None:
+    frame.on_add()
+    frame.host.SetValue("http://bad host")
+    click(frame.btn_connect)
+    assert frame.field_errors["host"].IsShown()
+    assert not any(c[0] == "mount" for c in env.mgr.calls)
+
+
 def test_invalid_save_shows_errors_under_fields(frame: Any, env: Env) -> None:
     frame.on_add()
     frame.host.SetValue("http://bad host")
