@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "irisfs"
-version = "0.9.2"
+version = "0.9.3"
 description = "ValhallISC: mount InterSystems IRIS code (classes, routines, ...) as a local filesystem"
 requires-python = ">=3.12"
 license = {text = "GPL-3.0-or-later"}

@@ -7,6 +7,7 @@ import logging
 import os
 import sys
 import threading
+from collections.abc import Callable
 
 import wx
 
@@ -14,6 +15,7 @@ from irisfs import APP_NAME
 from irisfs import log as logsetup
 from irisfs.config import secrets
 from irisfs.config.store import ProfileStore, ProfileStoreError, default_config_dir
+from irisfs.gui import instance
 from irisfs.gui.controller import AppController
 from irisfs.gui.profiles_frame import ProfilesFrame
 from irisfs.gui.tray import TrayIcon
@@ -24,27 +26,26 @@ from irisfs.mount.manager import MountManager
 log = logging.getLogger(__name__)
 
 
-def _hide_dock_icon() -> None:
-    """Menu-bar-only app when run from source (the .app bundle sets LSUIElement instead)."""
-    if sys.platform != "darwin":
-        return
-    try:
-        from AppKit import NSApp, NSApplicationActivationPolicyAccessory
+class _WxApp(wx.App):  # type: ignore[misc]
+    """wx.App that forwards macOS "reopen" (Dock icon clicked, app opened again from Finder or Launchpad)."""
 
-        NSApp.setActivationPolicy_(NSApplicationActivationPolicyAccessory)
-    except ImportError:
-        log.warning("PyObjC not available: a Dock icon will be shown")
+    on_reopen: Callable[[], None] | None = None
+
+    def MacReopenApp(self) -> None:
+        if self.on_reopen is not None:
+            self.on_reopen()
 
 
 class ValhallApp:
     def __init__(self) -> None:
-        self.wx_app = wx.App(False)
+        self.wx_app = _WxApp(False)
         self.wx_app.SetAppName(APP_NAME)
         self.wx_app.SetAppDisplayName(APP_NAME)
         self.hidden = wx.Frame(None)  # never shown: keeps the main loop alive for a tray-only app (ADR-005)
         self.profiles: ProfilesFrame | None = None
         self.fuse_dialog: wx.Dialog | None = None
         self.tray: TrayIcon | None = None
+        self.handed_over = False  # another instance was running and got the request instead
 
     def start(self) -> bool:
         config_dir = default_config_dir()
@@ -53,10 +54,13 @@ class ValhallApp:
         folder_id = hashlib.sha1(str(config_dir.resolve()).encode()).hexdigest()[:10]
         self.checker = wx.SingleInstanceChecker(f"{APP_NAME}-{wx.GetUserId()}-{folder_id}")
         if self.checker.IsAnotherRunning():
-            log.info("another instance is already running for %s", config_dir)
-            wx.MessageBox(f"{APP_NAME} is already running (see the menu bar / system tray).", APP_NAME)
+            # Launched again: the running instance shows its window (ADR-016); this process just leaves.
+            log.info("already running for %s: asking it to show the Profiles window", config_dir)
+            instance.request_show(config_dir)
+            self.handed_over = True
             return False
-        _hide_dock_icon()
+        self.config_dir = config_dir
+        instance.take_show_request(config_dir)  # left over from an earlier run: ignore
         try:
             store = ProfileStore(config_dir / "profiles.json", secrets=secrets.default_store(config_dir))
         except ProfileStoreError as e:
@@ -71,6 +75,15 @@ class ValhallApp:
             wx.CallAfter(prompter.error, APP_NAME, store.load_warning)
         threading.Thread(target=self._cleanup, name="stale-cleanup", daemon=True).start()
         self.tray = TrayIcon(self.controller, open_profiles=self.open_profiles)
+        self.wx_app.on_reopen = self._on_reopen  # macOS: Dock icon, or the app opened again
+        if sys.platform == "darwin":
+            # Cmd-Q and Quit in the Dock arrive as a request to end the session: same confirmation (and
+            # unmount) as the menu's Quit. Vetoed here; the controller exits once the servers are unmounted.
+            # (Elsewhere the event only comes with a system shutdown, which must not wait for a dialog.)
+            self.wx_app.Bind(wx.EVT_QUERY_END_SESSION, self._on_quit_request)
+        self.show_poll = wx.Timer(self.hidden)
+        self.hidden.Bind(wx.EVT_TIMER, self._poll_show_request, self.show_poll)
+        self.show_poll.Start(1000)
         self.controller.fuse_missing_handler = self.show_fuse_help
         wx.CallAfter(self.check_fuse)  # startup check: explain how to install FUSE if it is missing
         if not store.profiles():
@@ -111,6 +124,23 @@ class ValhallApp:
         self.profiles.Show()
         self.profiles.Raise()
 
+    def _poll_show_request(self, _event: wx.TimerEvent) -> None:
+        if instance.take_show_request(self.config_dir):
+            log.info("launched again: showing the Profiles window")
+            self.open_profiles()
+
+    def _on_reopen(self) -> None:
+        log.info("reopened (Dock or Finder): showing the Profiles window")
+        self.open_profiles()
+
+    def _on_quit_request(self, event: wx.CloseEvent) -> None:
+        log.info("quit requested (Cmd-Q, Dock or system)")
+        if event.CanVeto():
+            event.Veto()
+            wx.CallAfter(self.controller.on_quit)
+        else:
+            event.Skip()
+
     def _on_profiles_destroyed(self, event: wx.WindowDestroyEvent) -> None:
         if event.GetEventObject() is self.profiles:
             self.profiles = None
@@ -118,6 +148,8 @@ class ValhallApp:
 
     def exit(self) -> None:
         log.info("exiting")
+        if getattr(self, "show_poll", None) is not None:
+            self.show_poll.Stop()
         still = self.manager.unmount_all(force=True, wait=10)  # normally already empty (Quit unmounts first)
         if still:
             log.warning("still mounted at exit: %s", still)
@@ -131,7 +163,7 @@ class ValhallApp:
 
     def run(self) -> int:
         if not self.start():
-            return 1
+            return 0 if self.handed_over else 1
         self.wx_app.MainLoop()
         return 0
 

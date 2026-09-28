@@ -1,5 +1,5 @@
 # PyInstaller spec for ValhallISC.  Build with the scripts in scripts/ (they write irisfs/_build.py first).
-#   macOS:   dist/ValhallISC.app (menu-bar app, LSUIElement); the CLI is the app's own executable (ADR-009:
+#   macOS:   dist/ValhallISC.app (Dock and menu-bar icons, ADR-016); the CLI is the app's own executable (ADR-009:
 #            onefile binaries re-extract on every launch and macOS re-scans them: 10-100 s startups)
 #   Linux:   dist/valhallisc (onefile: tray app when run without arguments, CLI otherwise)
 #   Windows: dist/ValhallISC.exe (onefile, windowed) + dist/valhallisc-cli.exe (onefile, console CLI)
@@ -85,7 +85,6 @@ if sys.platform == "darwin":
             "CFBundleName": "ValhallISC",
             "CFBundleDisplayName": "ValhallISC",
             "CFBundleShortVersionString": VERSION,
-            "LSUIElement": True,  # menu-bar only: no Dock icon
             "NSHighResolutionCapable": True,
         },
     )

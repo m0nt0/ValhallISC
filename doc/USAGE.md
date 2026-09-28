@@ -46,10 +46,12 @@ Run `valhallisc doctor` to check a machine. It lists the FUSE driver found, the 
 | System | What you get | How to start it |
 |---|---|---|
 | macOS | `ValhallISC-<version>-macos-arm64.dmg` (Apple silicon) or `…-macos-x86_64.dmg` (Intel), containing the app, the `valhallisc` command line and the license | Open the DMG and drag **ValhallISC** onto **Applications**. Copy `valhallisc` somewhere in your `PATH` if you want the command line. Release builds are signed and notarized. For a build that isn't notarized: right-click → Open the first time, or run `xattr -dr com.apple.quarantine /Applications/ValhallISC.app`. |
-| Windows | `ValhallISC.exe` (tray app) and `valhallisc-cli.exe` (command line) | Double-click `ValhallISC.exe`. |
+| Windows | `ValhallISC-<version>-windows-x86_64-setup.exe` (installer), or `ValhallISC.exe` (tray app) and `valhallisc-cli.exe` (command line) as single files | Run the installer: no administrator rights needed. It installs for the current user, adds **ValhallISC** to the Start menu, and lists it in *Settings → Apps → Installed apps* to uninstall it. The single files run from anywhere: double-click `ValhallISC.exe`. |
 | Linux | `valhallisc-<version>-linux-x86_64` or `…-linux-aarch64` (one file) | Make it executable and run it without arguments for the tray app. It needs glibc 2.39 or newer, `fuse3`, and a desktop with a system tray. On GNOME, enable the *AppIndicator* extension. |
 
-On macOS the icon appears in the menu bar, not in the Dock. It's dimmed while nothing is mounted and solid when something is. Only one copy of the app runs at a time.
+On macOS the app appears in the Dock and its icon in the menu bar. On Windows and Linux the icon is in the system tray. The menu-bar icon is dimmed while nothing is mounted and solid when something is.
+
+Only one copy of the app runs at a time. Opening it again (a click on the Dock icon, the Start menu, Finder, or the executable) shows the **Profiles** window of the copy already running. This is also how to find it when its menu-bar icon is hidden, for example behind the notch of a MacBook. On macOS, Cmd-Q and **Quit** in the Dock ask for confirmation and unmount the servers, like **Quit** in the menu.
 
 ## 3. Add a server (profile)
 

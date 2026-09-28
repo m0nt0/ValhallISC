@@ -52,7 +52,7 @@ The downloads are on the GitHub **Releases** page:
 | macOS, Apple silicon | `ValhallISC-<version>-macos-arm64.dmg` (signed and notarized) |
 | macOS, Intel | `ValhallISC-<version>-macos-x86_64.dmg` (signed and notarized) |
 | Linux x86_64 / ARM64 | `valhallisc-<version>-linux-x86_64` / `-linux-aarch64` (one file; glibc 2.39 or newer) |
-| Windows | `ValhallISC.exe` + `valhallisc-cli.exe`, built by the *Windows build* GitHub Action |
+| Windows | `ValhallISC-<version>-windows-x86_64-setup.exe` (per-user installer: Start menu, Installed apps), or `ValhallISC.exe` + `valhallisc-cli.exe` as single files; built by the *Windows build* GitHub Action |
 
 `SHA256SUMS` lists the checksums.
 
@@ -91,7 +91,7 @@ Packaging uses PyInstaller:
 | macOS | `scripts/build-macos.sh` | `dist/ValhallISC.app`, a zip of it, and the `dist/valhallisc` CLI wrapper |
 | macOS release | `SIGN_IDENTITY=… NOTARY_PROFILE=… scripts/sign-macos.sh` | signed (hardened runtime), notarized, stapled `dist/ValhallISC-<version>-macos-<arch>.dmg`; see [doc/RELEASING.md](doc/RELEASING.md) |
 | Linux | `scripts/build-linux.sh` (in Docker) | `dist/valhallisc-linux-<arch>` |
-| Windows | `powershell -ExecutionPolicy Bypass -File scripts\build-windows.ps1` | `dist\ValhallISC.exe`, `dist\valhallisc-cli.exe` |
+| Windows | `powershell -ExecutionPolicy Bypass -File scripts\build-windows.ps1`, then `iscc /DAppVersion=<version> packaging\windows\valhallisc.iss` for the installer | `dist\ValhallISC.exe`, `dist\valhallisc-cli.exe`, `dist\ValhallISC-<version>-windows-x86_64-setup.exe` |
 
 The Python package is called `irisfs`, after the project's working title. The product name is ValhallISC.
 
@@ -145,7 +145,7 @@ samples/           an example XML export to try an import
 
 - **Supported:** export by reading or copying, and import by copying XML exports in.
 - **Not supported yet:** deleting, renaming or creating items directly (other than by import), editing UDL source files in place, and CSP/web application files.
-- **Windows:** tested from source and with the tray app on Windows (64-bit) with WinFsp. The packaged `.exe` is still being validated.
+- **Windows:** the packaged `.exe` is tested by hand with WinFsp; the installer is built and installed/uninstalled on every CI run.
 - **macOS release builds** are signed with the hardened runtime and notarized, using `scripts/sign-macos.sh` with a Developer ID certificate. Local builds are ad-hoc signed.
 
 ## License

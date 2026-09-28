@@ -1,6 +1,7 @@
 # Builds ValhallISC for Windows on a real Windows machine (a Mac cannot: Rosetta only translates macOS
 # programs and Docker Desktop only runs Linux containers). Runs the unit tests on Windows, then uploads
-# ValhallISC.exe (tray app) and valhallisc-cli.exe (command line) as a downloadable artifact.
+# ValhallISC.exe (tray app), valhallisc-cli.exe (command line) and the installer
+# (ValhallISC-<version>-windows-x86_64-setup.exe, Inno Setup) as a downloadable artifact.
 name: Windows build
 
 on:
@@ -46,10 +47,43 @@ jobs:
           dist\valhallisc-cli.exe --version
           dist\valhallisc-cli.exe doctor; exit 0   # no WinFsp on the runner: doctor reports it, that's fine
 
+      - name: Installer (Inno Setup)
+        shell: pwsh
+        run: |
+          $iscc = (Get-Command iscc -ErrorAction SilentlyContinue).Source
+          if (-not $iscc) { $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" }
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup --no-progress -y | Out-Null
+            $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          }
+          $version = (.venv\Scripts\python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])").Trim()
+          & $iscc /Q "/DAppVersion=$version" packaging\windows\valhallisc.iss
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed" }
+          Get-ChildItem dist\*-setup.exe | Format-Table Name, Length
+
+      - name: The installer installs, registers and uninstalls (per user, silent)
+        shell: pwsh
+        run: |
+          $setup = (Get-ChildItem dist\*-setup.exe).FullName
+          Start-Process $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CURRENTUSER" -Wait
+          $dir = "$env:LOCALAPPDATA\Programs\ValhallISC"
+          if (-not (Test-Path "$dir\ValhallISC.exe")) { throw "not installed in $dir" }
+          & "$dir\valhallisc-cli.exe" --version
+          $key = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{2DAE1885-8CC3-5321-A654-A9743821F73A}_is1"
+          if (-not (Test-Path $key)) { throw "not listed in Installed apps" }
+          $lnk = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\ValhallISC.lnk"
+          if (-not (Test-Path $lnk)) { throw "no Start menu entry" }
+          Start-Process "$dir\unins000.exe" -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES" -Wait
+          Start-Sleep -Seconds 3
+          if (Test-Path "$dir\ValhallISC.exe") { throw "uninstall left the program behind" }
+          if (Test-Path $key) { throw "uninstall left the Installed apps entry" }
+          Write-Host "installer OK"
+
       - uses: actions/upload-artifact@v4
         with:
           name: ValhallISC-windows-x86_64
           path: |
             dist/ValhallISC.exe
             dist/valhallisc-cli.exe
+            dist/*-setup.exe
             LICENSE
