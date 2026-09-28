@@ -15,7 +15,14 @@ class AtelierApi(Protocol):
         self, ns: str, *, category: str = "*", generated: bool = False, like: str | None = None
     ) -> list[DocInfo]: ...
     def list_folder(
-        self, ns: str, package: str, *, system: bool, generated: bool, mapped: bool
+        self,
+        ns: str,
+        package: str,
+        *,
+        system: bool,
+        generated: bool,
+        mapped: bool,
+        limit: int | None = None,
     ) -> list[FolderEntry]: ...
     def doc_info(self, ns: str, name: str) -> DocInfo: ...
     def doc_timestamp(self, ns: str, name: str) -> str: ...

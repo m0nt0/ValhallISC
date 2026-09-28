@@ -281,12 +281,18 @@ class VirtualFS:
     def _query_folder(self, ns: str, parts: tuple[str, ...]) -> Listing:
         show = self.opts.show_system
         package = ".".join(parts)
-        entries = self.api.list_folder(
-            ns, package, system=show, generated=False, mapped=True
-        )  # never, as before
-        if not show:
+        # generated items: never listed, as before ADR-014
+        if show:
+            entries = self.api.list_folder(ns, package, system=True, generated=False, mapped=True)
+        else:
+            # everything, and what is in the namespace's own database: asked side by side
+            with ThreadPoolExecutor(2, thread_name_prefix="list") as pool:
+                all_future = pool.submit(
+                    self.api.list_folder, ns, package, system=False, generated=False, mapped=True
+                )
+                local = self.api.list_folder(ns, package, system=False, generated=False, mapped=False)
+                entries = all_future.result()
             entries = [e for e in entries if not is_system_name(_full_name(package, e))]
-            local = self.api.list_folder(ns, package, system=False, generated=False, mapped=False)
             local_names = {e.name for e in local}
             mapped_only = [e for e in entries if e.name not in local_names]
             if mapped_only:
@@ -371,7 +377,7 @@ class VirtualFS:
         """One document inside a mapped package (its database tells where the whole package comes from).
         A few one-level queries instead of listing the package with `docnames`, whose cost grows with it."""
         entries: list[FolderEntry] = self._call(
-            lambda: self.api.list_folder(ns, package, system=True, generated=False, mapped=True)
+            lambda: self.api.list_folder(ns, package, system=True, generated=False, mapped=True, limit=50)
         )
         doc = next((e for e in entries if not e.is_dir), None)
         if doc is not None:

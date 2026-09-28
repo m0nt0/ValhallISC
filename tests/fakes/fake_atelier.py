@@ -146,7 +146,14 @@ class FakeAtelier:
         ]
 
     def list_folder(
-        self, ns: str, package: str, *, system: bool, generated: bool, mapped: bool
+        self,
+        ns: str,
+        package: str,
+        *,
+        system: bool,
+        generated: bool,
+        mapped: bool,
+        limit: int | None = None,
     ) -> list[FolderEntry]:
         """Like IRIS's StudioOpenDialog: one level, "other" documents only at the root by full name,
         mapped = from a database other than the namespace's own."""
@@ -176,7 +183,8 @@ class FakeAtelier:
                 dirs.add(base.split(".", 1)[0])
             else:
                 entries.append(FolderEntry(d.name, is_dir=False, ts=d.ts))
-        return [FolderEntry(n, is_dir=True) for n in sorted(dirs)] + sorted(entries, key=lambda e: e.name)
+        result = [FolderEntry(n, is_dir=True) for n in sorted(dirs)] + sorted(entries, key=lambda e: e.name)
+        return result[:limit] if limit else result
 
     def doc_info(self, ns: str, name: str) -> DocInfo:
         self._enter("doc_info")

@@ -42,11 +42,17 @@ _NOT_EXPORTABLE_CODES = {6309, 5848}  # deployed class (no source); default Stud
 
 # Parameters: Spec, Dir, OrderBy, SystemFiles, Flat, NotStudio, ShowGenerated, Filter, RoundTime, Mapped.
 # "Date" must be quoted: DATE is an SQL reserved word.
-_FOLDER_QUERY = 'SELECT Name, Type, "Date" FROM %Library.RoutineMgr_StudioOpenDialog(?,?,?,?,?,?,?,?,?,?)'
+_FOLDER_QUERY = (
+    'SELECT {top}Name, Type, "Date" FROM %Library.RoutineMgr_StudioOpenDialog(?,?,?,?,?,?,?,?,?,?)'
+)
 _TYPE_PACKAGE = 9
 _TYPE_CSP_DIR = 10
 _TYPE_OTHER = 100  # lookup tables, DTL, BPL, HL7 schemas, ...: listed by full name at the root
 _SLOW_MS = 1000  # requests slower than this are logged even without debug logging
+
+
+def _folder_query(limit: int | None) -> str:
+    return _FOLDER_QUERY.format(top=f"TOP {int(limit)} " if limit else "")
 
 
 def _flag(value: bool) -> str:
@@ -256,19 +262,28 @@ class AtelierClient:
         ]
 
     def list_folder(
-        self, ns: str, package: str, *, system: bool, generated: bool, mapped: bool
+        self,
+        ns: str,
+        package: str,
+        *,
+        system: bool,
+        generated: bool,
+        mapped: bool,
+        limit: int | None = None,
     ) -> list[FolderEntry]:
         """One level of a namespace: the sub-packages and documents directly inside `package` ("" for the
         namespace root), through %Library.RoutineMgr_StudioOpenDialog - the query VS Code's isfs uses.
 
         `system` includes %-items, `generated` generated items, `mapped` items mapped from other databases.
-        "Other" documents (lookup tables, DTL, BPL, ...) are only listed at the root, by full name."""
+        "Other" documents (lookup tables, DTL, BPL, ...) are only listed at the root, by full name.
+        `limit` returns only the first rows (packages first): a folder can hold tens of thousands. It counts
+        IRIS's rows, CSP folders (skipped here) included, so at the root it can return fewer entries."""
         spec = f"{package}/*" if package else "*"  # "Demo.Sub/*" (not "Demo/Sub/*": that lists nothing)
         params = [spec, "1", "1", _flag(system), "0", "0", _flag(generated), "", "0", _flag(mapped)]
         r = self._request(
             "POST",
             self._versioned(ns, "action/query"),
-            json={"query": _FOLDER_QUERY, "parameters": params},
+            json={"query": _folder_query(limit), "parameters": params},
             idempotent=True,
         )
         body = self._body(r)
