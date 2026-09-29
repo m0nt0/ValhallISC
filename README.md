@@ -60,7 +60,7 @@ The downloads are on the GitHub **Releases** page:
 
 1. Install the FUSE driver for your system. If it's missing, ValhallISC tells you at startup how to install it on *your* machine: Homebrew or MacPorts on macOS; apt, dnf, pacman, emerge, zypper, apk… by Linux distribution; winget or the download page on Windows.
 2. Start ValhallISC (`ValhallISC.app`, `ValhallISC.exe`, or the Linux binary run without arguments).
-3. In **Profiles**, click **+**, enter the server, user, password and mount folder, then **Test connection** → **Save**.
+3. In **Profiles**, click **+**, enter the server, user, password and mount folder, then **Test connection** → **Save & Mount**.
 4. Click the menu-bar or tray icon, then click the server: its namespaces appear in the mount folder.
 
 The full guide is in **[doc/USAGE.md](doc/USAGE.md)**, and the command line reference in **[doc/CLI.md](doc/CLI.md)**:

@@ -2,8 +2,8 @@
 
 Left: two-line profile rows (status dot, name, host or mount state) with "+" and trash buttons below.
 Right: a banner with Open folder / Unmount while the profile is mounted, then two tabs - Connection
-(grouped: Server, Sign in, Mount) and Options - and a fixed footer: Test connection, Connect
-(+ inline result), Revert, Save.
+(grouped: Server, Sign in, Mount) and Options - and a fixed footer: Test connection (+ inline result),
+Revert, Save and the default button, Mount (design review 2).
 """
 
 from __future__ import annotations
@@ -19,14 +19,16 @@ import wx.lib.scrolledpanel
 from irisfs import APP_NAME
 from irisfs.config.profile import Profile
 from irisfs.gui import icons
-from irisfs.gui.controller import AppController, ProfileItem
+from irisfs.gui.controller import AppController, ProfileItem, TestResult, short_path
 
 log = logging.getLogger(__name__)
 ERROR_BG = wx.Colour(255, 225, 225)
 ERROR_FG = wx.Colour(170, 20, 20)
 OK_FG = wx.Colour(30, 110, 55)
+HINT_FG = {False: wx.Colour(138, 75, 15), True: wx.Colour(240, 190, 120)}  # by dark mode
 UNCHANGED = "Saved — type to replace"
-DOT = {"mounted": "#1f8a45", "busy": "#c58a12", "idle": "#8a867c", "new": "#0b57b8"}
+LOCKED_MASK = "••••••••"  # the disabled password field's value while the profile is in use
+NEW_DOT = "#0b57b8"  # the unsaved new profile
 
 EYE_SVG = (
     '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="none" '
@@ -36,9 +38,10 @@ EYE_SVG = (
 
 
 def _row_html(name: str, subtitle: str, dot: str, *, italic: bool = False, selected: bool = False) -> str:
-    if selected:  # on the selection colour, everything uses the selection text colour (contrast)
+    if selected:  # on the selection colour, text uses the selection text colour (contrast); the dot keeps
+        # its state colour (design review 2 #7)
         text = wx.SystemSettings.GetColour(wx.SYS_COLOUR_HIGHLIGHTTEXT).GetAsString(wx.C2S_HTML_SYNTAX)
-        grey = dot = text
+        grey = text
     else:
         text = wx.SystemSettings.GetColour(wx.SYS_COLOUR_LISTBOXTEXT).GetAsString(wx.C2S_HTML_SYNTAX)
         grey = wx.SystemSettings.GetColour(wx.SYS_COLOUR_GRAYTEXT).GetAsString(wx.C2S_HTML_SYNTAX)
@@ -46,6 +49,19 @@ def _row_html(name: str, subtitle: str, dot: str, *, italic: bool = False, selec
     return (
         f'<font color="{dot}">●</font>&nbsp;<font color="{text}"><b>{title}</b></font><br>'
         f'&nbsp;&nbsp;&nbsp;&nbsp;<font size="-1" color="{grey}">{html.escape(subtitle)}</font>'
+    )
+
+
+def _mix(a: wx.Colour, b: wx.Colour, amount: float) -> wx.Colour:
+    return wx.Colour(*(round(x + (y - x) * amount) for x, y in zip(a.Get(False), b.Get(False), strict=True)))
+
+
+def _separator_colour() -> wx.Colour:
+    """A quiet frame colour for either theme (the themed border is stark white in macOS dark mode)."""
+    return _mix(
+        wx.SystemSettings.GetColour(wx.SYS_COLOUR_WINDOW),
+        wx.SystemSettings.GetColour(wx.SYS_COLOUR_WINDOWTEXT),
+        0.2,
     )
 
 
@@ -83,9 +99,15 @@ class ProfilesFrame(wx.Frame):
 
         # left: list + buttons
         side = wx.Panel(root)
-        # one border style only: HLB_DEFAULT_STYLE already has BORDER_SUNKEN, and two asserts on Windows
-        style = (wx.html.HLB_DEFAULT_STYLE & ~wx.BORDER_MASK) | wx.BORDER_THEME
-        self.list = wx.html.SimpleHtmlListBox(side, style=style)
+        # one border style only: HLB_DEFAULT_STYLE already has BORDER_SUNKEN, and two asserts on Windows.
+        # No native border at all: a 1px frame in a quiet colour instead (design review 2 #6).
+        self.list_frame = wx.Panel(side)
+        self.list_frame.SetBackgroundColour(_separator_colour())
+        style = (wx.html.HLB_DEFAULT_STYLE & ~wx.BORDER_MASK) | wx.BORDER_NONE
+        self.list = wx.html.SimpleHtmlListBox(self.list_frame, style=style)
+        frame_sizer = wx.BoxSizer(wx.VERTICAL)
+        frame_sizer.Add(self.list, 1, wx.EXPAND | wx.ALL, 1)
+        self.list_frame.SetSizer(frame_sizer)
         self.list.Bind(wx.EVT_LISTBOX, lambda e: self.select_row(e.GetSelection()))
         self.btn_add = wx.BitmapButton(side, bitmap=icons.svg_bundle(icons.PLUS_SVG, 16))
         self.btn_add.SetToolTip("New profile")
@@ -97,7 +119,7 @@ class ProfilesFrame(wx.Frame):
         side_buttons.Add(self.btn_add, 0, wx.RIGHT, 4)
         side_buttons.Add(self.btn_delete)
         side_sizer = wx.BoxSizer(wx.VERTICAL)
-        side_sizer.Add(self.list, 1, wx.EXPAND)
+        side_sizer.Add(self.list_frame, 1, wx.EXPAND)
         side_sizer.Add(side_buttons, 0, wx.TOP, 6)
         side.SetSizer(side_sizer)
         side.SetMinSize(wx.Size(260, -1))
@@ -109,16 +131,28 @@ class ProfilesFrame(wx.Frame):
         dark = wx.SystemSettings.GetAppearance().IsDark()
         # soft green matching the "mounted" dot (the system "info" colour is a dark tooltip grey on GTK)
         self.banner.SetBackgroundColour(wx.Colour(28, 60, 40) if dark else wx.Colour(228, 243, 233))
-        self.banner_text = wx.StaticText(self.banner, label="")
-        self.banner_text.SetForegroundColour(wx.Colour(200, 235, 210) if dark else wx.Colour(20, 70, 38))
+        # two lines (design review 2 #2): the state in bold, then the folder, shortened in the middle
+        self.banner_title = wx.StaticText(self.banner, label="")
+        self.banner_title.SetForegroundColour(wx.Colour(200, 235, 210) if dark else wx.Colour(20, 70, 38))
+        bold = self.banner_title.GetFont()
+        bold.SetWeight(wx.FONTWEIGHT_BOLD)
+        self.banner_title.SetFont(bold)
+        self.banner_detail = wx.StaticText(
+            self.banner, label="", style=wx.ST_ELLIPSIZE_MIDDLE | wx.ST_NO_AUTORESIZE
+        )
+        self.banner_detail.SetForegroundColour(wx.Colour(165, 205, 178) if dark else wx.Colour(43, 90, 55))
+        self.banner_detail.SetMinSize(wx.Size(80, -1))
         self.btn_open = wx.Button(self.banner, label="Open folder")
         self.btn_unmount = wx.Button(self.banner, label="Unmount…")
         self.btn_open.Bind(
             wx.EVT_BUTTON, lambda _e: self.current and self.controller.open_folder(self.current.id)
         )
         self.btn_unmount.Bind(wx.EVT_BUTTON, lambda _e: self.on_unmount())
+        banner_texts = wx.BoxSizer(wx.VERTICAL)
+        banner_texts.Add(self.banner_title, 0, wx.EXPAND)
+        banner_texts.Add(self.banner_detail, 0, wx.EXPAND | wx.TOP, 2)
         banner_sizer = wx.BoxSizer(wx.HORIZONTAL)
-        banner_sizer.Add(self.banner_text, 1, wx.ALIGN_CENTER_VERTICAL | wx.ALL, 10)
+        banner_sizer.Add(banner_texts, 1, wx.ALIGN_CENTER_VERTICAL | wx.ALL, 10)
         banner_sizer.Add(self.btn_open, 0, wx.ALIGN_CENTER_VERTICAL | wx.TOP | wx.BOTTOM, 6)
         banner_sizer.Add(self.btn_unmount, 0, wx.ALIGN_CENTER_VERTICAL | wx.ALL, 6)
         self.banner.SetSizer(banner_sizer)
@@ -171,6 +205,9 @@ class ProfilesFrame(wx.Frame):
             "Windows: a drive letter (X:) or a folder that does not exist yet."
         )
         self.read_only = wx.CheckBox(conn, label="Read-only (browse and copy out, never import)")
+        self.port_hint = wx.StaticText(conn, label="")  # after a refused test (design review 2 #9)
+        self.port_hint.SetForegroundColour(HINT_FG[dark])
+        self.port_hint.Hide()
 
         server_row = wx.BoxSizer(wx.HORIZONTAL)
         server_row.Add(field(conn, "Address", self.host, "host"), 1, wx.RIGHT, 12)
@@ -192,6 +229,7 @@ class ProfilesFrame(wx.Frame):
         col.Add(field(conn, "Profile name", self.name, "name"), 0, wx.EXPAND | wx.BOTTOM, 16)
         col.Add(_heading(conn, "Server"), 0, wx.BOTTOM, 6)
         col.Add(server_row, 0, wx.EXPAND | wx.BOTTOM, 6)
+        col.Add(self.port_hint, 0, wx.EXPAND | wx.BOTTOM, 6)
         col.Add(tls_row, 0, wx.BOTTOM, 16)
         col.Add(_heading(conn, "Sign in"), 0, wx.BOTTOM, 6)
         col.Add(sign_row, 0, wx.EXPAND | wx.BOTTOM, 16)
@@ -218,18 +256,20 @@ class ProfilesFrame(wx.Frame):
         opts.SetSizer(opadded)
 
         # footer
+        # design review 2 #4: Mount is the primary action (default button, rightmost); Test stays on the left
         self.btn_test = wx.Button(form, label="Test connection")
-        self.btn_connect = wx.Button(form, label="Connect")
-        self.btn_connect.SetToolTip("Save if needed, then mount this server")
-        self.test_result = wx.StaticText(form, label="")
+        self.test_result = wx.StaticText(form, label="", style=wx.ST_ELLIPSIZE_END | wx.ST_NO_AUTORESIZE)
+        self.test_result.SetMinSize(wx.Size(60, -1))
         self.btn_revert = wx.Button(form, label="Revert")
         self.btn_save = wx.Button(form, wx.ID_SAVE, label="Save")
+        self.btn_mount = wx.Button(form, label="Mount")
+        self.btn_mount.SetDefault()
         footer = wx.BoxSizer(wx.HORIZONTAL)
         footer.Add(self.btn_test)
-        footer.Add(self.btn_connect, 0, wx.LEFT, 8)
-        footer.Add(self.test_result, 1, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 10)
+        footer.Add(self.test_result, 1, wx.ALIGN_CENTER_VERTICAL | wx.LEFT | wx.RIGHT, 10)
         footer.Add(self.btn_revert, 0, wx.RIGHT, 8)
-        footer.Add(self.btn_save)
+        footer.Add(self.btn_save, 0, wx.RIGHT, 8)
+        footer.Add(self.btn_mount)
 
         fcol = wx.BoxSizer(wx.VERTICAL)
         fcol.Add(self.banner, 0, wx.EXPAND | wx.BOTTOM, 8)
@@ -266,7 +306,7 @@ class ProfilesFrame(wx.Frame):
         self.btn_save.Bind(wx.EVT_BUTTON, lambda _e: self.on_save())
         self.btn_revert.Bind(wx.EVT_BUTTON, lambda _e: self.on_revert())
         self.btn_test.Bind(wx.EVT_BUTTON, lambda _e: self.on_test())
-        self.btn_connect.Bind(wx.EVT_BUTTON, lambda _e: self.on_connect())
+        self.btn_mount.Bind(wx.EVT_BUTTON, lambda _e: self.on_mount())
 
     # ---- list --------------------------------------------------------------------------------
     def reload_list(self, select_id: str | None) -> None:
@@ -295,11 +335,11 @@ class ProfilesFrame(wx.Frame):
             sel = index == selected
             item = self._items.get(profile_id)
             if item is not None:
-                dot = DOT["mounted"] if item.mounted else DOT["busy"] if item.active else DOT["idle"]
-                html_rows.append(_row_html(item.name, item.subtitle, dot, selected=sel))
+                dot = icons.state_dot(item.mounted, item.active)
+                html_rows.append(_row_html(item.name, item.row_subtitle, dot, selected=sel))
             elif self.current is not None:  # the unsaved new profile
                 name = self.current.name or "New server"
-                html_rows.append(_row_html(name, "not saved yet", DOT["new"], italic=True, selected=sel))
+                html_rows.append(_row_html(name, "not saved yet", NEW_DOT, italic=True, selected=sel))
         self.list.Set(html_rows)
         if 0 <= selected < len(html_rows):
             self.list.SetSelection(selected)
@@ -355,6 +395,7 @@ class ProfilesFrame(wx.Frame):
             self.show_system.SetValue(p.show_system if p else False)
             self.compile.SetValue(p.compile_on_import if p else True)
             self.test_result.SetLabel("")
+            self.port_hint.Hide()
             self._set_errors({})
         finally:
             self._loading = False
@@ -402,6 +443,8 @@ class ProfilesFrame(wx.Frame):
         self._fit_contents()
 
     def _form_password(self) -> str | None:
+        if self.is_read_only():
+            return None  # locked: the field shows a mask, the saved password is the one in use
         value = (self.password_plain if self.password_plain.IsShown() else self.password).GetValue()
         return value if value or self.current_is_new else None  # empty = keep the saved password
 
@@ -438,13 +481,41 @@ class ProfilesFrame(wx.Frame):
             self.compile,
         ):
             ctrl.Enable(has and not locked)
+        self._show_password_field(locked)
         self.btn_test.Enable(has)
-        self.btn_connect.Enable(has and not locked)  # locked: mounting, mounted or unmounting
+        self.btn_mount.Enable(has and not locked)  # locked: mounting, mounted or unmounting
+        save_first = has and self.dirty
+        self.btn_mount.SetLabel("Save && Mount" if save_first else "Mount")  # '&&': wx mnemonic escape
+        self.btn_mount.SetToolTip(
+            "Save the changes, then mount this server" if save_first else "Mount this server"
+        )
         self.btn_save.Enable(has and not locked and self.dirty)
         self.btn_revert.Enable(has and not locked and self.dirty and not self.current_is_new)
         self.btn_delete.Enable(has and not locked)
         self._update_banner(locked)
         self.form.Layout()
+
+    def _show_password_field(self, locked: bool) -> None:
+        """Design review 2 #1: on macOS a disabled field draws its hint in the normal text colour, so the
+        locked password looked editable. While the form is locked the plain field stands in, disabled, with
+        a mask as its value (greyed like the other values); it may hold a stale copy, so it is rewritten."""
+        plain = self.btn_eye.GetValue() or locked
+        mask = (
+            LOCKED_MASK if locked and self.current and self.controller.store.password(self.current.id) else ""
+        )
+        self._loading = True
+        try:
+            if locked and self.password_plain.GetValue() != mask:
+                self.password_plain.SetValue(mask)
+            elif not locked and self.password_plain.GetValue() == LOCKED_MASK:
+                self.password_plain.SetValue("")
+        finally:
+            self._loading = False
+        if plain == self.password_plain.IsShown():
+            return
+        self.password.Show(not plain)
+        self.password_plain.Show(plain)
+        self._fit_contents()
 
     def _update_banner(self, locked: bool) -> None:
         """Design review #5: a mounted profile gets its actions right here instead of a dead end."""
@@ -453,9 +524,16 @@ class ProfilesFrame(wx.Frame):
             self.banner.Hide()
             return
         if item.mounted:
-            self.banner_text.SetLabel(f"{item.subtitle}. Unmount to edit or delete this profile.")
+            # the folder alone: a middle ellipsis would cut into any sentence after it
+            self.banner_title.SetLabel(item.row_subtitle)
+            self.banner_detail.SetLabel(short_path(item.mount_point))
+            tip = f"{item.mount_point}\nUnmount to edit or delete this profile."
         else:
-            self.banner_text.SetLabel(f"{item.status} Editing is available once it has finished.")
+            self.banner_title.SetLabel(item.status)
+            self.banner_detail.SetLabel("Editing is available once it has finished.")
+            tip = ""
+        for window in (self.banner, self.banner_title, self.banner_detail):
+            window.SetToolTip(tip)
         self.btn_open.Show(item.mounted)
         self.btn_unmount.Show(item.mounted)
         self.banner.Show()
@@ -540,14 +618,14 @@ class ProfilesFrame(wx.Frame):
         self.reload_list(profile.id)
         return True
 
-    def on_connect(self) -> None:
+    def on_mount(self) -> None:
         """Mount the selected server; an unsaved or changed profile is saved first."""
-        if self.current is None:
-            return
+        if self.current is None or not self.btn_mount.IsEnabled():
+            return  # (Enter reaches the default button even while it is disabled on some platforms)
         if (self.current_is_new or self.dirty) and not self.on_save():
             return  # errors are shown under the fields
         assert self.current is not None
-        self.controller.connect(self.current.id)
+        self.controller.mount(self.current.id)
 
     def on_revert(self) -> None:
         if self.current is not None and not self.current_is_new:
@@ -565,21 +643,26 @@ class ProfilesFrame(wx.Frame):
         self.btn_test.Disable()
         self.btn_test.SetLabel("Testing…")
         self.test_result.SetLabel("")
+        self.port_hint.Hide()
 
         def work() -> None:
-            ok, message = self.controller.test_connection(profile, password)
-            wx.CallAfter(done, ok, message)
+            wx.CallAfter(done, self.controller.test_connection(profile, password))
 
-        def done(ok: bool, message: str) -> None:
+        def done(result: TestResult) -> None:
             if not self:
                 return
             self.btn_test.SetLabel("Test connection")
             self.btn_test.Enable()
-            first_line = message.splitlines()[0] if message else ""
-            self.test_result.SetForegroundColour(OK_FG if ok else ERROR_FG)
-            self.test_result.SetLabel(("✓ " if ok else "✗ ") + first_line)
-            self.test_result.SetToolTip(message)
-            self.form.Layout()
+            first_line = result.message.splitlines()[0] if result.message else ""
+            self.test_result.SetForegroundColour(OK_FG if result.ok else ERROR_FG)
+            self.test_result.SetLabel(("✓ " if result.ok else "✗ ") + first_line)
+            self.test_result.SetToolTip(result.message)
+            if result.hint:
+                self.port_hint.SetLabel(result.hint)
+                self.port_hint.Wrap(max(200, self.fields_panel.GetClientSize().width - 40))
+                self.port_hint.Show()
+                self.tabs.SetSelection(0)
+            self._fit_contents()
 
         threading.Thread(target=work, daemon=True).start()
 

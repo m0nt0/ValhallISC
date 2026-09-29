@@ -49,7 +49,12 @@ def test_profile_list_has_one_border_style(frame: Any) -> None:
     import wx
 
     border = frame.list.GetWindowStyleFlag() & wx.BORDER_MASK
-    assert border == wx.BORDER_THEME
+    assert border == wx.BORDER_NONE
+    # design review 2 #6: a 1px frame in a quiet colour instead (the themed one is white in dark mode)
+    assert frame.list.GetParent() is frame.list_frame
+    colour = frame.list_frame.GetBackgroundColour()
+    window = wx.SystemSettings.GetColour(wx.SYS_COLOUR_WINDOW)
+    assert colour != window and colour != wx.SystemSettings.GetColour(wx.SYS_COLOUR_WINDOWTEXT)
 
 
 def test_windows_carry_the_logo(frame: Any) -> None:
@@ -95,27 +100,41 @@ def test_add_fill_save(frame: Any, env: Env, wx_app: Any) -> None:
     assert frame.password.GetHint() == UNCHANGED
 
 
-def test_connect_saves_then_mounts(frame: Any, env: Env, wx_app: Any) -> None:
+def test_mount_saves_then_mounts(frame: Any, env: Env, wx_app: Any) -> None:
     frame.on_add()
     frame.name.SetValue("Dev IRIS")
     frame.host.SetValue("10.0.0.5")
     frame.user.SetValue("dev")
     frame.password.SetValue("s3cret")
     frame.mount_point.SetPath(str(env.tmp / "devmnt"))
-    assert frame.btn_connect.IsEnabled()
-    click(frame.btn_connect)
+    assert frame.btn_mount.IsEnabled()
+    assert frame.btn_mount.GetLabelText() == "Save & Mount"  # design review 2 #4
+    click(frame.btn_mount)
     pump(wx_app)
     [saved] = env.store.profiles()  # saved first: a mount needs the stored profile and password
     assert ("mount", saved.id) in env.mgr.calls
+    assert frame.btn_mount.GetLabelText() == "Mount"
     frame.reload_list(saved.id)
     pump(wx_app)
-    assert not frame.btn_connect.IsEnabled()  # mounting: the banner offers the actions now
+    assert not frame.btn_mount.IsEnabled()  # mounting: the banner offers the actions now
 
 
-def test_connect_with_invalid_form_mounts_nothing(frame: Any, env: Env) -> None:
+def test_mount_is_the_default_rightmost_button(frame: Any, env: Env, wx_app: Any) -> None:
+    # design review 2 #4: one primary action, after Revert and Save; Test connection stays on the left
+    p = env.add("Idle")
+    frame.reload_list(p.id)
+    pump(wx_app)
+    assert frame.GetDefaultItem() is frame.btn_mount
+    left = [
+        b.GetScreenRect().left for b in (frame.btn_test, frame.btn_revert, frame.btn_save, frame.btn_mount)
+    ]
+    assert left == sorted(left)
+
+
+def test_mount_with_invalid_form_mounts_nothing(frame: Any, env: Env) -> None:
     frame.on_add()
     frame.host.SetValue("http://bad host")
-    click(frame.btn_connect)
+    click(frame.btn_mount)
     assert frame.field_errors["host"].IsShown()
     assert not any(c[0] == "mount" for c in env.mgr.calls)
 
@@ -157,7 +176,22 @@ def test_mounted_profile_is_read_only_with_banner(frame: Any, env: Env, wx_app: 
     assert not frame.btn_delete.IsEnabled()
     # design review #5: the banner offers the actions instead of a dead end
     assert frame.banner.IsShown() and frame.btn_open.IsShown() and frame.btn_unmount.IsShown()
-    assert "Mounted" in frame.banner_text.GetLabel()
+    # design review 2 #2: state on its own bold line, the folder below it
+    assert frame.banner_title.GetLabel() == "Mounted"
+    assert frame.banner_detail.GetLabel() == p.mount_point.replace(str(Path.home()), "~")
+    assert "Unmount to edit" in frame.banner_detail.GetToolTipText()
+    # design review 2 #1: a disabled field's hint looks active on macOS; the plain field stands in, disabled,
+    # with a mask value, and the mask is never taken for a password
+    from irisfs.gui.profiles_frame import LOCKED_MASK
+
+    assert not frame.password.IsShown() and frame.password_plain.IsShown()
+    assert not frame.password_plain.IsEnabled() and frame.password_plain.GetValue() == LOCKED_MASK
+    assert frame._form_password() is None
+    env.mgr.states[p.id] = State.INACTIVE
+    frame.reload_list(p.id)
+    pump(wx_app)
+    assert frame.password.IsShown() and not frame.password_plain.IsShown() and frame.password.IsEnabled()
+    assert frame.password_plain.GetValue() == "" and not frame.dirty
 
 
 def test_banner_actions(frame: Any, env: Env, wx_app: Any) -> None:
@@ -214,8 +248,35 @@ def test_list_rows_show_state(frame: Any, env: Env, wx_app: Any) -> None:
     frame.reload_list(None)
     pump(wx_app)
     rows = [frame.list.GetString(i) for i in range(frame.row_count())]
-    assert "Mounted ·" in rows[0] and "Alpha" in rows[0]
+    assert "Mounted<" in rows[0] and "Alpha" in rows[0]  # one short line, no path (design review 2 #3)
     assert "localhost:52773 · not mounted" in rows[1]
+
+
+def test_selected_row_keeps_its_state_dot(frame: Any, env: Env, wx_app: Any) -> None:
+    from irisfs.gui import icons
+
+    a = env.add("Alpha")
+    env.mgr.states[a.id] = State.ACTIVE
+    frame.reload_list(a.id)
+    pump(wx_app)
+    assert icons.STATE_DOTS["mounted"] in frame.list.GetString(0)  # design review 2 #7
+
+
+def test_refused_test_shows_port_hint(frame: Any, env: Env, wx_app: Any) -> None:
+    import time
+
+    p = env.add("Local")
+    frame.reload_list(p.id)
+    pump(wx_app)
+    frame.host.SetValue("127.0.0.1")
+    frame.port.SetValue("9")  # nothing listens there: connection refused
+    frame.on_test()
+    deadline = time.monotonic() + 20
+    while not frame.port_hint.IsShown() and time.monotonic() < deadline:
+        pump(wx_app)
+        time.sleep(0.05)
+    assert frame.port_hint.IsShown() and "port 80" in frame.port_hint.GetLabel()
+    assert frame.test_result.GetLabel().startswith("✗")
 
 
 def test_options_tab_error_switches_tab(frame: Any) -> None:
@@ -260,8 +321,8 @@ def test_menus(env: Env, wx_app: Any) -> None:
     assert labels == [
         "ValhallISC — 1 of 3 mounted",
         "A — Mounted",
-        "B — Connecting…",
-        "C",
+        "B — Mounting…",
+        "C — Mount",
         "Profiles…",
         "Quit ValhallISC",
     ]
@@ -270,7 +331,8 @@ def test_menus(env: Env, wx_app: Any) -> None:
     assert sub is not None
     sub_labels = [i.GetItemLabelText() for i in sub.GetMenuItems() if not i.IsSeparator()]
     assert "Mounted ·" in sub_labels[0] and sub_labels[1:] == ["Open folder", "Unmount…"]
-    assert not items[2].IsEnabled()  # connecting
+    assert not items[2].IsEnabled()  # mounting
+    assert all(items[i].GetBitmap().IsOk() for i in (1, 2, 3))  # state dots (design review 2 #7)
     assert sorted(actions.values()) == sorted([("open", a.id), ("unmount", a.id), ("toggle", c.id)])
     empty, actions = build_menu([], "profiles", "no servers yet")
     assert not [i for i in empty.GetMenuItems() if not i.IsSeparator()][-1].IsEnabled() and actions == {}

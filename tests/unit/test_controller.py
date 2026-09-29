@@ -131,7 +131,7 @@ def test_profile_items_sorted_with_states(env: Env) -> None:
     [
         (State.INACTIVE, "X", True),
         (State.ACTIVE, "X", True),
-        (State.MOUNTING, "X (connecting…)", False),
+        (State.MOUNTING, "X (mounting…)", False),
         (State.UNMOUNTING, "X (unmounting…)", False),
     ],
 )
@@ -319,8 +319,20 @@ def test_delete_confirm_and_active_refused(env: Env) -> None:
 
 def test_test_connection_unreachable(env: Env) -> None:
     p = Profile(name="x", host="127.0.0.1", port=9, username="u", mount_point="/m")
-    ok, message = env.ctl.test_connection(p, "pw")
-    assert not ok and "connect" in message.lower()
+    result = env.ctl.test_connection(p, "pw")
+    assert not result.ok and "connect" in result.message.lower()
+    assert "try port 80" in result.hint  # design review 2 #9: IRIS 2023.2+ has no private web server
+
+
+@pytest.mark.parametrize(
+    ("port", "https", "expected"),
+    [(52773, False, "try port 80 "), (52773, True, "try port 443 "), (80, False, "URL prefix")],
+)
+def test_port_hint(port: int, https: bool, expected: str) -> None:
+    from irisfs.gui.controller import port_hint
+
+    p = Profile(name="x", host="h", port=port, username="u", mount_point="/m", https=https)
+    assert expected in port_hint(p)
 
 
 @pytest.mark.parametrize("system", ["Windows", "Linux"])
@@ -343,15 +355,30 @@ def test_prepare_folder_drive_letter_is_noop(env: Env) -> None:
     ("state", "external", "read_only", "expected"),
     [
         (State.INACTIVE, False, False, "iris:52773 · not mounted"),
-        (State.MOUNTING, False, False, "Connecting…"),
+        (State.MOUNTING, False, False, "Mounting…"),
         (State.UNMOUNTING, False, False, "Unmounting…"),
         (State.ACTIVE, False, True, "Mounted · /m · read-only"),
-        (State.ACTIVE, True, False, "Connected from CLI · /m"),
+        (State.ACTIVE, True, False, "Mounted from CLI · /m"),
     ],
 )
 def test_item_subtitle(state: State, external: bool, read_only: bool, expected: str) -> None:
     item = ProfileItem("id", "X", state, "/m", external, "iris", 52773, read_only)
     assert item.subtitle == expected
+
+
+@pytest.mark.parametrize(
+    ("state", "read_only", "expected"),
+    [
+        (State.INACTIVE, False, "iris:52773 · not mounted"),
+        (State.MOUNTING, False, "Mounting…"),
+        (State.ACTIVE, True, "Mounted · read-only"),
+        (State.ACTIVE, False, "Mounted"),
+    ],
+)
+def test_row_subtitle_is_one_short_line(state: State, read_only: bool, expected: str) -> None:
+    # design review 2 #3: no path in the list row (it wrapped); the banner shows it
+    item = ProfileItem("id", "X", state, "/very/long/mount/point", False, "iris", 52773, read_only)
+    assert item.row_subtitle == expected
 
 
 def test_home_is_shortened() -> None:
@@ -400,10 +427,10 @@ def test_missing_fuse_opens_the_install_help(env: Env) -> None:
     assert env.prompter.log == []  # the dialog replaces the generic error
 
 
-def test_connect_mounts_only_an_inactive_profile(env: Env) -> None:
+def test_mount_mounts_only_an_inactive_profile(env: Env) -> None:
     p = env.add("Box")
-    env.ctl.connect(p.id)
+    env.ctl.mount(p.id)
     assert ("mount", p.id) in env.mgr.calls
     env.mgr.calls.clear()
-    env.ctl.connect(p.id)  # already mounting: nothing more
+    env.ctl.mount(p.id)  # already mounting: nothing more
     assert not any(c[0] == "mount" for c in env.mgr.calls)

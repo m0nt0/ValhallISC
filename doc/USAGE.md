@@ -70,23 +70,25 @@ On first start the **Profiles** window opens by itself. Otherwise use **menu →
    - **URL prefix:** set it if IRIS is behind a web gateway with a path, e.g. `/iris`.
    - **Show system items:** also lists `%` classes and library classes.
    - **Compile after import:** on by default.
-4. Click **Test connection**. The result appears next to the button: ✓ with the IRIS version and namespaces, or ✗ with the reason.
-5. Click **Save**.
+4. Click **Test connection**. The result appears next to the button: ✓ with the IRIS version and namespaces, or ✗ with the reason. If the server can't be reached, a hint under **Port** suggests the web server's port: IRIS 2023.2 and later have no built-in web server on 52773.
+5. Click **Save**, or **Save & Mount** to save and mount in one step.
 
-Mistakes are shown in red under the field concerned. A mounted profile can't be edited or deleted: its banner offers **Open folder** and **Unmount…** instead.
+Mistakes are shown in red under the field concerned. A mounted profile can't be edited or deleted: its banner shows the state and the folder, with **Open folder** and **Unmount…**.
+
+In the list, a dot shows each server's state: grey not mounted, amber mounting or unmounting, green mounted.
 
 ## 4. Mount and unmount
 
-From the **Profiles** window, **Connect** (next to **Test connection**) mounts the selected server; a new or changed profile is saved first.
+From the **Profiles** window, **Mount** (the default button, bottom right; **Enter** presses it) mounts the selected server. A new or changed profile is saved first: the button then reads **Save & Mount**.
 
 Click the icon. The menu shows every server with its state:
 
 | Menu entry | Meaning / what a click does |
 |---|---|
-| `Dev IRIS` | not mounted: **click to mount** |
-| `Test server — Connecting…` | in progress (greyed out) |
+| `Dev IRIS — Mount` | not mounted: **click to mount** |
+| `Test server — Mounting…` | in progress (greyed out) |
 | `Production — Mounted ▸` | a submenu: where it's mounted, **Open folder**, **Unmount…** (asks for confirmation) |
-| `… — Connected from CLI ▸` | mounted with `valhallisc connect`; you can unmount it here too |
+| `… — Mounted from CLI ▸` | mounted with `valhallisc connect`; you can unmount it here too |
 
 On Windows and Linux, a **left click** shows the servers and a **right click** shows **Profiles…** and **Quit**. macOS has a single menu for both.
 
@@ -159,7 +161,7 @@ valhallisc --batch --disconnect Dev
 |---|---|
 | "A FUSE driver is needed" window | Run the command it shows (or use its download link), then click **Check again**. macFUSE may need approval in System Settings → Privacy & Security and a restart. |
 | "The server rejected the user name or password" | Check user and password with **Test connection**. The user needs `%Development`. |
-| "The server could not be reached" | Check host, port, HTTPS and URL prefix. Try `http://host:52773/api/atelier/` in a browser. Check firewalls. |
+| "The server could not be reached" | Check host, port, HTTPS and URL prefix. Try `http://host:52773/api/atelier/` in a browser. Check firewalls. IRIS 2023.2 and later have no built-in web server: use the web server's port (80, or 443 with HTTPS) and, if IRIS is under a path, the URL prefix. |
 | "Parent folder … does not exist" / "is not empty" | Choose another mount folder (see section 3 for the Windows rules). |
 | "The folder is in use" when unmounting | Close windows, terminals or editors that are inside the folder, or choose **Force unmount**. |
 | An import shows "import failed" | The file isn't an IRIS XML export, it's malformed, or the user has no write permission (IRIS error #5883). |

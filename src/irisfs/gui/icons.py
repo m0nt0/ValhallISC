@@ -67,6 +67,22 @@ def svg_bundle(template: str, size: int = 20) -> wx.BitmapBundle:
     return wx.BitmapBundle.FromSVG(template.format(c=colour).encode(), wx.Size(size, size))
 
 
+# Profile state colours: list rows and tray menu (design review 2 #7: grey idle, amber busy, green mounted)
+STATE_DOTS = {"mounted": "#1f8a45", "busy": "#c58a12", "idle": "#8a867c"}
+DOT_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12">'
+    '<circle cx="6" cy="6" r="4" fill="{c}"/></svg>'
+)
+
+
+def state_dot(item_mounted: bool, item_active: bool) -> str:
+    return STATE_DOTS["mounted" if item_mounted else "busy" if item_active else "idle"]
+
+
+def dot_bundle(colour: str, size: int = 12) -> wx.BitmapBundle:
+    return wx.BitmapBundle.FromSVG(DOT_SVG.format(c=colour).encode(), wx.Size(size, size))
+
+
 WINDOW_ICON_SIZES = (16, 24, 32, 48, 64, 128, 256)
 
 

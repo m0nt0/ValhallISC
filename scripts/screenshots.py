@@ -140,6 +140,17 @@ def main(out: Path, theme: str | None = None) -> None:
     grab(frame, out / "profiles-connecting.png")
     del mgr.states[test.id]
 
+    frame.reload_list(dev.id)
+    frame.host.SetValue("127.0.0.1")
+    frame.port.SetValue("9")  # nothing listens there: refused, so the port hint shows
+    frame.on_test()
+    for _ in range(200):
+        if frame.port_hint.IsShown():
+            break
+        settle()
+    grab(frame, out / "profiles-port-hint.png")
+    frame.on_revert()
+
     from irisfs.gui import tray
 
     menus = []

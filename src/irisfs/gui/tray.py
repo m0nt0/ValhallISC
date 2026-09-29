@@ -36,7 +36,7 @@ MenuActions = dict[int, tuple[str, str]]
 def append_profiles(menu: wx.Menu, items: list[ProfileItem], summary: str) -> MenuActions:
     """Header, then one entry per profile (design review): a mounted profile is a submenu with Open folder /
     Unmount (native menus cannot hold buttons); a changing one is disabled with its state word; an idle one
-    mounts when clicked."""
+    says "Mount" and mounts when clicked (design review 2 #10). Each entry carries its state dot."""
     actions: MenuActions = {}
     header = menu.Append(wx.ID_ANY, f"{APP_NAME} — {summary}")
     header.Enable(False)
@@ -46,6 +46,8 @@ def append_profiles(menu: wx.Menu, items: list[ProfileItem], summary: str) -> Me
         empty.Enable(False)
         return actions
     for item in items:
+        # the bitmap must be set before the item is appended (wxMSW)
+        dot = icons.dot_bundle(icons.state_dot(item.mounted, item.active))
         if item.mounted:
             sub = wx.Menu()
             where = sub.Append(wx.ID_ANY, item.subtitle)
@@ -55,13 +57,21 @@ def append_profiles(menu: wx.Menu, items: list[ProfileItem], summary: str) -> Me
             unmount_item = sub.Append(wx.ID_ANY, "Unmount…")
             actions[open_item.GetId()] = ("open", item.id)
             actions[unmount_item.GetId()] = ("unmount", item.id)
-            menu.AppendSubMenu(sub, f"{item.name} — {item.status}")
-        elif item.active:  # connecting / unmounting
-            busy = menu.Append(wx.ID_ANY, f"{item.name} — {item.status}")
-            busy.Enable(False)
+            entry = wx.MenuItem(menu, wx.ID_ANY, f"{item.name} — {item.status}", subMenu=sub)
+            entry.SetBitmap(dot)
+            menu.Append(entry)
+        elif item.active:  # mounting / unmounting
+            entry = wx.MenuItem(menu, wx.ID_ANY, f"{item.name} — {item.status}")
+            entry.SetBitmap(dot)
+            menu.Append(entry)
+            entry.Enable(False)
         else:
-            mi = menu.Append(wx.ID_ANY, item.name, helpString=f"Mount {item.name} at {item.mount_point}")
-            actions[mi.GetId()] = ("toggle", item.id)
+            entry = wx.MenuItem(
+                menu, wx.ID_ANY, f"{item.name} — Mount", helpString=f"Mount {item.name} at {item.mount_point}"
+            )
+            entry.SetBitmap(dot)
+            menu.Append(entry)
+            actions[entry.GetId()] = ("toggle", item.id)
     return actions
 
 

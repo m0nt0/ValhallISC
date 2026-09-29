@@ -17,6 +17,14 @@ def _label(text: str) -> str:
     return text.replace("&", "&&")
 
 
+def secondary_text() -> wx.Colour:
+    """Secondary but readable (design review 2 #8): GRAYTEXT is the *disabled* colour, below 4.5:1 on
+    macOS. The window text colour blended 35% towards the background stays above it in both themes."""
+    fg = wx.SystemSettings.GetColour(wx.SYS_COLOUR_WINDOWTEXT)
+    bg = wx.SystemSettings.GetColour(wx.SYS_COLOUR_WINDOW)
+    return wx.Colour(*(round(f + (b - f) * 0.35) for f, b in zip(fg.Get(False), bg.Get(False), strict=True)))
+
+
 class FuseMissingDialog(wx.Dialog):
     def __init__(
         self, advice: Advice, recheck: Callable[[], Advice | None], parent: wx.Window | None = None
@@ -68,7 +76,7 @@ class FuseMissingDialog(wx.Dialog):
 
         for note in advice.notes:
             text = wx.StaticText(panel, label=_label(note))
-            text.SetForegroundColour(wx.SystemSettings.GetColour(wx.SYS_COLOUR_GRAYTEXT))
+            text.SetForegroundColour(secondary_text())
             text.Wrap(520)
             col.Add(text, 0, wx.TOP, 8)
 

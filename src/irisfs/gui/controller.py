@@ -18,7 +18,7 @@ from pathlib import Path
 
 from irisfs import APP_NAME
 from irisfs.atelier.client import AtelierClient
-from irisfs.atelier.errors import AtelierError
+from irisfs.atelier.errors import AtelierError, ConnectionFailed
 from irisfs.config import mountpoint
 from irisfs.config.profile import Profile, ProfileValidationError
 from irisfs.config.store import ProfileActiveError, ProfileStore
@@ -31,7 +31,8 @@ Task = Callable[[], None]
 
 _ERROR_TEXT = {
     protocol.AUTH_FAILED: "The server rejected the user name or password.",
-    protocol.UNREACHABLE: "The server could not be reached. Check address and port and that IRIS is running.",
+    protocol.UNREACHABLE: "The server could not be reached. Check address and port and that IRIS is running. "
+    "IRIS 2023.2 and later have no built-in web server: use the web server's port (80, or 443 with HTTPS).",
     protocol.SERVER_ERROR: "The server returned an error.",
     protocol.FUSE_MISSING: "No FUSE driver is installed on this computer.",
     protocol.MOUNTPOINT_INVALID: "The mount folder cannot be used.",
@@ -64,16 +65,16 @@ class ProfileItem:
     def status(self) -> str:
         """Short state word(s) used in the menu (design review: words instead of a bare ✓)."""
         if self.state is State.MOUNTING:
-            return "Connecting…"
+            return "Mounting…"
         if self.state is State.UNMOUNTING:
             return "Unmounting…"
         if self.state is State.ACTIVE:
-            return "Connected from CLI" if self.external else "Mounted"
+            return "Mounted from CLI" if self.external else "Mounted"
         return ""
 
     @property
     def subtitle(self) -> str:
-        """Second line of a list row: where it is mounted, or which server it points at."""
+        """Where it is mounted, or which server it points at (the tray submenu's first line)."""
         if self.state is State.ACTIVE:
             extra = " · read-only" if self.read_only else ""
             return f"{self.status} · {short_path(self.mount_point)}{extra}"
@@ -82,13 +83,20 @@ class ProfileItem:
         return f"{self.host}:{self.port} · not mounted" if self.host else "not mounted"
 
     @property
+    def row_subtitle(self) -> str:
+        """Second line of a Profiles list row, kept to one line (design review 2 #3)."""
+        if self.state is State.ACTIVE:
+            return self.status + (" · read-only" if self.read_only else "")
+        return self.subtitle
+
+    @property
     def label(self) -> str:
         if self.state is State.MOUNTING:
-            return f"{self.name} (connecting…)"
+            return f"{self.name} (mounting…)"
         if self.state is State.UNMOUNTING:
             return f"{self.name} (unmounting…)"
         if self.external:
-            return f"{self.name} (connected from CLI)"
+            return f"{self.name} (mounted from CLI)"
         return self.name
 
     @property
@@ -199,8 +207,8 @@ class AppController:
             self._mount(profile)
         # MOUNTING / UNMOUNTING: menu item is disabled; ignore stray clicks
 
-    def connect(self, profile_id: str) -> None:
-        """Mount a saved profile (the Profiles window's Connect button)."""
+    def mount(self, profile_id: str) -> None:
+        """Mount a saved profile (the Profiles window's Mount button)."""
         if self.manager.state(profile_id) is State.INACTIVE:
             self._mount(self.store.get(profile_id))
 
@@ -366,7 +374,7 @@ class AppController:
         self._changed()
         return True
 
-    def test_connection(self, profile: Profile, password: str | None) -> tuple[bool, str]:
+    def test_connection(self, profile: Profile, password: str | None) -> TestResult:
         """Blocking; call from a background thread. `password=None` uses the saved one."""
         pw = password if password is not None else (self.store.password(profile.id) or "")
         try:
@@ -374,7 +382,30 @@ class AppController:
                 profile.base_url, profile.username, pw, verify_tls=profile.verify_tls, timeout=10
             ) as c:
                 info = c.server_info(refresh=True)
+        except ConnectionFailed as e:
+            return TestResult(False, e.message, port_hint(profile))
         except AtelierError as e:
-            return False, e.message
+            return TestResult(False, e.message)
         namespaces = ", ".join(info.namespaces)
-        return True, f"Connected to {info.version.split(' (')[0]}.\nNamespaces: {namespaces}"
+        return TestResult(True, f"Connected to {info.version.split(' (')[0]}.\nNamespaces: {namespaces}")
+
+
+@dataclass(frozen=True)
+class TestResult:
+    __test__ = False  # not a pytest class
+
+    ok: bool
+    message: str
+    hint: str = ""  # shown under the Port field (design review 2 #9)
+
+
+def port_hint(profile: Profile) -> str:
+    """Why an unreachable server may be on another port: since IRIS 2023.2 new installations have no
+    private web server on 52773; the Atelier API is then behind the web server (80/443, maybe a prefix)."""
+    web_port = 443 if profile.https else 80
+    if profile.port == web_port:
+        return "Check the URL prefix (Options) if the web server serves IRIS under a path, e.g. /iris."
+    return (
+        f"IRIS 2023.2 and later have no built-in web server: try port {web_port} "
+        "(the web server's) and, if needed, a URL prefix in Options."
+    )
