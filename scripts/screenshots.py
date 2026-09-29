@@ -1,5 +1,7 @@
-"""Render the ValhallISC windows to PNG (for design reviews). Run under a display, e.g. in the Linux
-test container:  xvfb-run -a -s "-screen 0 1400x1000x24" python scripts/screenshots.py doc/screenshots"""
+"""Render the ValhallISC windows to PNG (for design reviews), plus menus.txt with the menus' structure.
+
+macOS:  python scripts/screenshots.py <dir> [light|dark]     (AppKit draws the window itself)
+Linux:  xvfb-run -a -s "-screen 0 1400x1000x24" python scripts/screenshots.py <dir>   (ImageMagick)"""
 
 from __future__ import annotations
 
@@ -34,6 +36,9 @@ def grab(window: wx.Window, path: Path) -> None:
     window.Refresh()
     window.Update()
     settle()
+    if sys.platform == "darwin":
+        _grab_macos(window, path)
+        return
     rect = window.GetScreenRect()
     # wx.ScreenDC returns stale pixels under Xvfb; ImageMagick's `import` reads the real X framebuffer.
     import subprocess
@@ -43,9 +48,47 @@ def grab(window: wx.Window, path: Path) -> None:
     print("wrote", path)
 
 
-def main(out: Path) -> None:
+def _grab_macos(window: wx.Window, path: Path) -> None:
+    """The window draws itself into a bitmap (no screen-recording permission needed), title bar included."""
+    from AppKit import NSApp, NSBitmapImageFileTypePNG
+
+    title = window.GetTitle()
+    ns_window = next(w for w in NSApp.windows() if w.isVisible() and w.title() == title)
+    view = ns_window.contentView().superview()  # the frame view: title bar + content
+    rep = view.bitmapImageRepForCachingDisplayInRect_(view.bounds())
+    view.cacheDisplayInRect_toBitmapImageRep_(view.bounds(), rep)
+    rep.representationUsingType_properties_(NSBitmapImageFileTypePNG, {}).writeToFile_atomically_(
+        str(path), True
+    )
+    print("wrote", path)
+
+
+def _appearance(theme: str | None) -> None:
+    if sys.platform != "darwin" or theme is None:
+        return
+    from AppKit import NSApp, NSAppearance
+
+    name = "NSAppearanceNameDarkAqua" if theme == "dark" else "NSAppearanceNameAqua"
+    NSApp.setAppearance_(NSAppearance.appearanceNamed_(name))
+
+
+def _menu_text(menu: wx.Menu, indent: str = "") -> list[str]:
+    lines = []
+    for item in menu.GetMenuItems():
+        if item.IsSeparator():
+            lines.append(f"{indent}────────")
+            continue
+        label = item.GetItemLabelText() + ("" if item.IsEnabled() else "   (disabled)")
+        lines.append(indent + label)
+        if item.GetSubMenu() is not None:
+            lines += _menu_text(item.GetSubMenu(), indent + "    ")
+    return lines
+
+
+def main(out: Path, theme: str | None = None) -> None:
     out.mkdir(parents=True, exist_ok=True)
     app = wx.App(False)
+    _appearance(theme)
     cfg = Path(os.environ["VALHALLISC_CONFIG_DIR"])
     store = ProfileStore(cfg / "profiles.json", secrets=FileSecretStore(cfg / "secrets.json"))
     mgr = FakeManager()
@@ -76,6 +119,7 @@ def main(out: Path) -> None:
         password="x",
     )
     mgr.states[prod.id] = State.ACTIVE
+    test = next(p for p in store.profiles() if p.name == "Test server")
 
     frame = ProfilesFrame(ctl)
     frame.SetPosition(wx.Point(20, 20))
@@ -90,6 +134,29 @@ def main(out: Path) -> None:
 
     frame.reload_list(prod.id)
     grab(frame, out / "profiles-mounted-readonly.png")
+
+    mgr.states[test.id] = State.MOUNTING
+    frame.reload_list(test.id)
+    grab(frame, out / "profiles-connecting.png")
+    del mgr.states[test.id]
+
+    from irisfs.gui import tray
+
+    menus = []
+    for kind in ("combined", "profiles", "actions"):  # macOS: combined; Windows/Linux: left / right click
+        menu, _actions = tray.build_menu(ctl.profile_items(), kind, ctl.summary())
+        menus += [f"== tray / menu-bar icon menu ({kind})", *_menu_text(menu), ""]
+    menus += [
+        "== macOS menu bar (app active)",
+        "ValhallISC: About ValhallISC, ..., Quit ValhallISC  Cmd-Q",
+        "File: Profiles…  Cmd-,",
+        "Window: (standard)",
+    ]
+    (out / "menus.txt").write_text("\n".join(menus) + "\n", encoding="utf-8")
+    print("wrote", out / "menus.txt")
+
+    frame.on_add()
+    grab(frame, out / "profiles-new.png")
 
     frame.on_add()
     frame.host.SetValue("http://bad host")
@@ -124,4 +191,7 @@ def main(out: Path) -> None:
 
 
 if __name__ == "__main__":
-    main(Path(sys.argv[1] if len(sys.argv) > 1 else "doc/screenshots"))
+    main(
+        Path(sys.argv[1] if len(sys.argv) > 1 else "doc/screenshots"),
+        sys.argv[2] if len(sys.argv) > 2 else None,
+    )
